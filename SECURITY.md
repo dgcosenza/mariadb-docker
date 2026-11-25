@@ -23,7 +23,9 @@ Immutable date-stamped tags (such as `11.8.10-20261124`) are frozen for reproduc
 
 **Do not open a public issue** for security vulnerabilities.
 
-Report privately through GitHub's private vulnerability reporting: open the repository's **Security** tab and select **Report a vulnerability**.
+Report privately through GitHub Security Advisories: open the repository's **Security** tab or submit a private advisory directly at [dgcosenza/mariadb-docker Security Advisories](https://github.com/dgcosenza/mariadb-docker/security/advisories/new).
+
+For upstream MariaDB Server vulnerabilities, follow the [MariaDB Security Policy](https://mariadb.org/about/#security).
 
 Please include a description of the vulnerability, affected tag or digest, reproduction steps, and any suggested remediation. We aim to acknowledge reports within 48 hours and remediate fixable vulnerabilities in the next daily build or an immediate manual dispatch.
 
