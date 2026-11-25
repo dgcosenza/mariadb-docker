@@ -1,0 +1,11 @@
+title = "Gitleaks configuration for dgcosenza/mariadb-docker"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Public MariaDB official APT release signing key fingerprint (signing-key@mariadb.org)"
+regexTarget = "secret"
+regexes = [
+  '''^177F4010FE56CA3336300305F1656F24C74CD1D8$''',
+]
