@@ -653,10 +653,9 @@ jobs:
           subject-digest: ${{ steps.index.outputs.idx_123 }}
           push-to-registry: true
 
-      - name: Publish signed GitHub Release with SBOMs and checksums
+      - name: Prepare release assets, checksums, and Cosign blob signature
         shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.index.outputs.release_tag }}
           V118: ${{ needs.resolve.outputs.v118 }}
           V123: ${{ needs.resolve.outputs.v123 }}
@@ -724,16 +723,32 @@ jobs:
           \`\`\`
           EOF
 
+      - name: Attest SLSA Build L3 provenance (release checksums)
+        id: attest_release
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: '.rel/checksums.txt'
+
+      - name: Publish signed GitHub Release with SBOMs, checksums, and SLSA provenance
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.index.outputs.release_tag }}
+          V118: ${{ needs.resolve.outputs.v118 }}
+          V123: ${{ needs.resolve.outputs.v123 }}
+          BUNDLE_PATH: ${{ steps.attest_release.outputs.bundle-path }}
+        run: |
+          set -euo pipefail
+          cp "$BUNDLE_PATH" .rel/checksums.txt.intoto.jsonl
           if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release edit "$TAG" -R "$GITHUB_REPOSITORY" --title "MariaDB ${V123} & ${V118} (${TAG})" --notes-file .rel/notes.md
-            gh release upload "$TAG" -R "$GITHUB_REPOSITORY" --clobber .rel/checksums.txt .rel/checksums.txt.sigstore.json .rel/sbom-*.json
+            gh release upload "$TAG" -R "$GITHUB_REPOSITORY" --clobber .rel/checksums.txt .rel/checksums.txt.sigstore.json .rel/checksums.txt.intoto.jsonl .rel/sbom-*.json
           else
             gh release create "$TAG" -R "$GITHUB_REPOSITORY" \
               --title "MariaDB ${V123} & ${V118} (${TAG})" \
               --notes-file .rel/notes.md \
-              .rel/checksums.txt .rel/checksums.txt.sigstore.json .rel/sbom-*.json
+              .rel/checksums.txt .rel/checksums.txt.sigstore.json .rel/checksums.txt.intoto.jsonl .rel/sbom-*.json
           fi
-
       - name: Build updated versions metadata
         shell: bash
         env:
