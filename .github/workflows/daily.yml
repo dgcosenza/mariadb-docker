@@ -29,8 +29,7 @@ on:
         required: false
         default: ''
 
-permissions:
-  contents: read
+permissions: {}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -44,226 +43,467 @@ env:
 
 jobs:
   public-check:
+    name: Public content check
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v7
-      - name: Check tracked files, attribution, and pull request text
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verify public-content rules, attribution, and license badges
         env:
           PR_TEXT: ${{ github.event.pull_request.title }} ${{ github.event.pull_request.body }}
         run: .github/scripts/public-check.sh
 
-  build-scan-publish:
-    needs: public-check
+  hadolint:
+    name: Hadolint Dockerfile lint
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Lint Dockerfile (blocking on warning+)
+        uses: hadolint/hadolint-action@06be81baf89a55ffd0e24b8f04a4185738dd3387 # v3.5.0
+        with:
+          dockerfile: Dockerfile
+          config: .hadolint.yaml
+          failure-threshold: warning
+
+  gitleaks:
+    name: Gitleaks secret scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install and verify Gitleaks
+        shell: bash
+        run: |
+          set -euo pipefail
+          VER="8.30.1"
+          SHA="551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+          curl -fsSLo /tmp/gitleaks.tar.gz "https://github.com/gitleaks/gitleaks/releases/download/v${VER}/gitleaks_${VER}_linux_x64.tar.gz"
+          echo "${SHA}  /tmp/gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+          install -m 0755 /tmp/gitleaks /usr/local/bin/gitleaks
+          rm -f /tmp/gitleaks /tmp/gitleaks.tar.gz
+      - name: Scan git history for secrets
+        shell: bash
+        run: gitleaks git --verbose --redact --no-banner
+
+  resolve:
+    name: Resolve upstream MariaDB 11.8/12.3, gosu, Go, and base digests
+    needs: [public-check, hadolint, gitleaks]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      v118: ${{ steps.resolve.outputs.v118 }}
+      v123: ${{ steps.resolve.outputs.v123 }}
+      gosu_version: ${{ steps.resolve.outputs.gosu_version }}
+      go_version: ${{ steps.resolve.outputs.go_version }}
+      go_base: ${{ steps.resolve.outputs.go_base }}
+      debian_base: ${{ steps.resolve.outputs.debian_base }}
+      base_digest: ${{ steps.resolve.outputs.base_digest }}
+      build_date: ${{ steps.resolve.outputs.build_date }}
+      build_date_iso: ${{ steps.resolve.outputs.build_date_iso }}
+      created: ${{ steps.resolve.outputs.created }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Resolve MariaDB 11.8 and 12.3 LTS releases, gosu, Go, and base digests
+        id: resolve
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OVERRIDE_118: ${{ inputs.mariadb_118_version }}
+          OVERRIDE_123: ${{ inputs.mariadb_123_version }}
+          OVERRIDE_GOSU: ${{ inputs.gosu_version }}
+          OVERRIDE_GO: ${{ inputs.go_version }}
+        run: |
+          set -euo pipefail
+          OUT118="$(mktemp)"
+          OUT123="$(mktemp)"
+
+          MARIADB_MAJOR=11.8 OVERRIDE_MARIADB="${OVERRIDE_118}" GITHUB_OUTPUT="${OUT118}" python3 .github/scripts/resolve-versions.py
+          MARIADB_MAJOR=12.3 OVERRIDE_MARIADB="${OVERRIDE_123}" GITHUB_OUTPUT="${OUT123}" python3 .github/scripts/resolve-versions.py
+
+          V118="$(grep '^mariadb_version=' "$OUT118" | tail -n 1 | cut -d= -f2-)"
+          V123="$(grep '^mariadb_version=' "$OUT123" | tail -n 1 | cut -d= -f2-)"
+          GOSU_VER="$(grep '^gosu_version=' "$OUT123" | tail -n 1 | cut -d= -f2-)"
+          GO_VER="$(grep '^go_version=' "$OUT123" | tail -n 1 | cut -d= -f2-)"
+          rm -f "$OUT118" "$OUT123"
+
+          GO_DIGEST="$(curl -fsSL "https://hub.docker.com/v2/repositories/library/golang/tags/${GO_VER}-trixie" | jq -r '.digest // empty')"
+          GO_BASE="golang:${GO_VER}-trixie"
+          [ -n "$GO_DIGEST" ] && GO_BASE="${GO_BASE}@${GO_DIGEST}"
+
+          BASE_DIGEST="$(curl -fsSL "https://hub.docker.com/v2/repositories/library/debian/tags/trixie-slim" | jq -r '.digest // empty')"
+          DEBIAN_BASE="debian:trixie-slim"
+          [ -n "$BASE_DIGEST" ] && DEBIAN_BASE="${DEBIAN_BASE}@${BASE_DIGEST}"
+
+          {
+            echo "v118=${V118}"
+            echo "v123=${V123}"
+            echo "gosu_version=${GOSU_VER}"
+            echo "go_version=${GO_VER}"
+            echo "go_base=${GO_BASE}"
+            echo "debian_base=${DEBIAN_BASE}"
+            echo "base_digest=${BASE_DIGEST}"
+            echo "build_date=$(date -u +%Y%m%d)"
+            echo "build_date_iso=$(date -u +%Y-%m-%d)"
+            echo "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Upload upstream changes artifacts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: upstream-changes
+          path: |
+            upstream-changes-11.8.md
+            upstream-changes-12.3.md
+          retention-days: 90
+
+  build-test-scan:
+    name: Build, smoke, Dive, SBOM & scan (${{ matrix.major }} / ${{ matrix.arch }})
+    needs: resolve
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     permissions:
       contents: read
+      packages: write
       security-events: write
     strategy:
       fail-fast: false
       matrix:
         include:
           - major: '11.8'
-            is_default_latest: 'false'
+            arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-latest
+            dive_sha: 0970549eb4a306f8825a84145a2534153badb4d7dcf3febd1967c706367c3d0e
+            syft_sha: ad92bd3ec1b94a3df01d4d0aec199afa9c42b72e86da436ff5f837914d32706b
+            grype_sha: f1ba7e2917ee1395618de20a98da0aa7c0fb1788927797651047c50502a37538
+          - major: '11.8'
+            arch: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            dive_sha: 2fcd2cf20f634ccdb41efac44048b204bfc867c115641f37a7420693ed480a18
+            syft_sha: 8efe605309c98798e1ee0cffdcf8c05ca26819b4cd44c0b03650f1e963e9bdb6
+            grype_sha: 819e5be3d9516432fedb7b6b56df7306c3a16607606dfc05826eefbb00e471da
           - major: '12.3'
-            is_default_latest: 'true'
-
+            arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-latest
+            dive_sha: 0970549eb4a306f8825a84145a2534153badb4d7dcf3febd1967c706367c3d0e
+            syft_sha: ad92bd3ec1b94a3df01d4d0aec199afa9c42b72e86da436ff5f837914d32706b
+            grype_sha: f1ba7e2917ee1395618de20a98da0aa7c0fb1788927797651047c50502a37538
+          - major: '12.3'
+            arch: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            dive_sha: 2fcd2cf20f634ccdb41efac44048b204bfc867c115641f37a7420693ed480a18
+            syft_sha: 8efe605309c98798e1ee0cffdcf8c05ca26819b4cd44c0b03650f1e963e9bdb6
+            grype_sha: 819e5be3d9516432fedb7b6b56df7306c3a16607606dfc05826eefbb00e471da
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
-
-      - name: Resolve upstream MariaDB, gosu, and Go versions
-        id: resolve
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          MARIADB_MAJOR: ${{ matrix.major }}
-          OVERRIDE_MARIADB: ${{ matrix.major == '11.8' && inputs.mariadb_118_version || inputs.mariadb_123_version }}
-          OVERRIDE_GOSU: ${{ inputs.gosu_version }}
-          OVERRIDE_GO: ${{ inputs.go_version }}
-        run: |
-          set -euo pipefail
-          python3 .github/scripts/resolve-versions.py
-          echo "build_date=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
-          echo "date_iso=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
-          echo "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
-
-      - name: Upload upstream changes artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          name: upstream-changes-${{ matrix.major }}
-          path: upstream-changes-${{ matrix.major }}.md
-          retention-days: 90
+          persist-credentials: false
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
-      - name: Build linux/amd64 candidate image
+      - name: Select resolved MariaDB version for ${{ matrix.major }}
+        id: ver
+        shell: bash
+        env:
+          MAJOR: ${{ matrix.major }}
+          V118: ${{ needs.resolve.outputs.v118 }}
+          V123: ${{ needs.resolve.outputs.v123 }}
+        run: |
+          if [ "$MAJOR" = "11.8" ]; then
+            echo "version=${V118}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${V123}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build MariaDB ${{ matrix.major }} (${{ matrix.platform }})
         id: build
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
-          platforms: linux/amd64
+          platforms: ${{ matrix.platform }}
           load: true
           no-cache: ${{ github.event_name == 'schedule' }}
           tags: |
-            ${{ env.IMAGE_NAME }}:ci-candidate-${{ matrix.major }}
+            ${{ env.IMAGE_NAME }}:ci-candidate-${{ matrix.major }}-${{ matrix.arch }}
           build-args: |
-            MARIADB_MAJOR=${{ steps.resolve.outputs.mariadb_major }}
-            MARIADB_VERSION=${{ steps.resolve.outputs.mariadb_version }}
+            GO_BASE=${{ needs.resolve.outputs.go_base }}
+            DEBIAN_BASE=${{ needs.resolve.outputs.debian_base }}
+            MARIADB_MAJOR=${{ matrix.major }}
+            MARIADB_VERSION=${{ steps.ver.outputs.version }}
             GPG_KEYS=${{ env.GPG_KEYS }}
-            GOSU_VERSION=${{ steps.resolve.outputs.gosu_version }}
-            GO_VERSION=${{ steps.resolve.outputs.go_version }}
-            IMAGE_CREATED=${{ steps.resolve.outputs.created }}
+            GOSU_VERSION=${{ needs.resolve.outputs.gosu_version }}
+            GO_VERSION=${{ needs.resolve.outputs.go_version }}
+            IMAGE_CREATED=${{ needs.resolve.outputs.created }}
             IMAGE_REVISION=${{ github.sha }}
             IMAGE_SOURCE=https://github.com/${{ github.repository }}
 
-      - name: Inspect built base OS and server versions
-        id: inspect
+      - name: Inspect OS version and image size
+        id: inspect_image
         shell: bash
+        env:
+          MAJOR: ${{ matrix.major }}
+          ARCH: ${{ matrix.arch }}
         run: |
           set -euo pipefail
-          DEBIAN_VER="$(docker run --rm --entrypoint cat "${IMAGE_NAME}:ci-candidate-${{ matrix.major }}" /etc/debian_version | tr -d '\r\n')"
-          MARIADB_OUT="$(docker run --rm --entrypoint mariadbd "${IMAGE_NAME}:ci-candidate-${{ matrix.major }}" --version | tr -d '\r\n')"
-          echo "debian_version=${DEBIAN_VER}" >> "$GITHUB_OUTPUT"
-          echo "Built Debian version: ${DEBIAN_VER}"
-          echo "Built MariaDB binary: ${MARIADB_OUT}"
+          IMG="${IMAGE_NAME}:ci-candidate-${MAJOR}-${ARCH}"
+          DEBIAN_VERSION="$(docker run --rm --entrypoint cat "$IMG" /etc/debian_version | tr -d '\r\n')"
+          SIZE_BYTES="$(docker image inspect --format='{{.Size}}' "$IMG")"
+          SIZE_MB="$(python3 -c "print(f'{int(${SIZE_BYTES})/1000000:.1f}')")"
+          {
+            echo "debian_version=${DEBIAN_VERSION}"
+            echo "size_bytes=${SIZE_BYTES}"
+            echo "size_mb=${SIZE_MB}"
+          } >> "$GITHUB_OUTPUT"
+          echo "Detected (${MAJOR}/${ARCH}): Debian=${DEBIAN_VERSION}, Size=${SIZE_MB} MB"
+          echo "### Image size (${MAJOR} / ${ARCH}): **${SIZE_MB} MB** (${SIZE_BYTES} bytes)" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Smoke-test container
+      - name: Smoke-test container (${{ matrix.major }} / ${{ matrix.arch }})
         shell: bash
+        run: ./tests/smoke.sh "${IMAGE_NAME}:ci-candidate-${{ matrix.major }}-${{ matrix.arch }}" "${{ matrix.major }}"
+
+      - name: Install verified Dive, Syft, and Grype (${{ matrix.arch }})
+        shell: bash
+        env:
+          ARCH: ${{ matrix.arch }}
+          DIVE_SHA: ${{ matrix.dive_sha }}
+          SYFT_SHA: ${{ matrix.syft_sha }}
+          GRYPE_SHA: ${{ matrix.grype_sha }}
         run: |
           set -euo pipefail
-          ./tests/smoke.sh "${IMAGE_NAME}:ci-candidate-${{ matrix.major }}" "${{ matrix.major }}"
+          curl -fsSLo /tmp/dive.tar.gz "https://github.com/wagoodman/dive/releases/download/v0.13.1/dive_0.13.1_linux_${ARCH}.tar.gz"
+          echo "${DIVE_SHA}  /tmp/dive.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/dive.tar.gz -C /tmp dive
+          install -m 0755 /tmp/dive /usr/local/bin/dive
 
-      - name: Scan image with Trivy — full table report
-        uses: aquasecurity/trivy-action@v0.36.0
+          curl -fsSLo /tmp/syft.tar.gz "https://github.com/anchore/syft/releases/download/v1.57.2/syft_1.57.2_linux_${ARCH}.tar.gz"
+          echo "${SYFT_SHA}  /tmp/syft.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/syft.tar.gz -C /tmp syft
+          install -m 0755 /tmp/syft /usr/local/bin/syft
+
+          curl -fsSLo /tmp/grype.tar.gz "https://github.com/anchore/grype/releases/download/v0.122.1/grype_0.122.1_linux_${ARCH}.tar.gz"
+          echo "${GRYPE_SHA}  /tmp/grype.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/grype.tar.gz -C /tmp grype
+          install -m 0755 /tmp/grype /usr/local/bin/grype
+
+          rm -f /tmp/dive /tmp/dive.tar.gz /tmp/syft /tmp/syft.tar.gz /tmp/grype /tmp/grype.tar.gz
+
+      - name: Dive image efficiency gate (${{ matrix.major }} / ${{ matrix.arch }})
+        shell: bash
+        env:
+          CI: 'true'
+        run: dive --ci-config .dive-ci "${IMAGE_NAME}:ci-candidate-${{ matrix.major }}-${{ matrix.arch }}"
+
+      - name: Generate SPDX and CycloneDX SBOMs with Syft (${{ matrix.major }} / ${{ matrix.arch }})
+        shell: bash
+        env:
+          MAJOR: ${{ matrix.major }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          IMG="docker:${IMAGE_NAME}:ci-candidate-${MAJOR}-${ARCH}"
+          syft "$IMG" -o "spdx-json=sbom-${MAJOR}-${ARCH}.spdx.json"
+          syft "$IMG" -o "cyclonedx-json=sbom-${MAJOR}-${ARCH}.cdx.json"
+
+      - name: Scan image with Trivy — informational table (${{ matrix.major }} / ${{ matrix.arch }})
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: '${{ env.IMAGE_NAME }}:ci-candidate-${{ matrix.major }}'
+          image-ref: '${{ env.IMAGE_NAME }}:ci-candidate-${{ matrix.major }}-${{ matrix.arch }}'
           format: 'table'
           vuln-type: 'os,library'
           severity: 'CRITICAL,HIGH'
           exit-code: '0'
-          output: 'trivy-report-${{ matrix.major }}.txt'
+          output: 'trivy-report-${{ matrix.major }}-${{ matrix.arch }}.txt'
 
-      - name: Scan image with Trivy — JSON report
-        uses: aquasecurity/trivy-action@v0.36.0
+      - name: Scan image with Trivy — JSON for CVE diffing (${{ matrix.major }} / ${{ matrix.arch }})
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: '${{ env.IMAGE_NAME }}:ci-candidate-${{ matrix.major }}'
+          image-ref: '${{ env.IMAGE_NAME }}:ci-candidate-${{ matrix.major }}-${{ matrix.arch }}'
           format: 'json'
           vuln-type: 'os,library'
           severity: 'CRITICAL,HIGH'
           exit-code: '0'
-          output: 'trivy-report-${{ matrix.major }}.json'
+          output: 'trivy-report-${{ matrix.major }}-${{ matrix.arch }}.json'
 
-      - name: Scan image with Trivy — SARIF for code scanning
-        uses: aquasecurity/trivy-action@v0.36.0
+      - name: Compute CVE diff (${{ matrix.major }} / ${{ matrix.arch }})
+        shell: bash
+        run: python3 .github/scripts/cve-diff.py versions.json "trivy-report-${{ matrix.major }}-${{ matrix.arch }}.json" "cve-diff-${{ matrix.major }}-${{ matrix.arch }}.json"
+
+      - name: Scan image with Trivy — SARIF for code scanning (${{ matrix.major }} / ${{ matrix.arch }})
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: '${{ env.IMAGE_NAME }}:ci-candidate-${{ matrix.major }}'
+          image-ref: '${{ env.IMAGE_NAME }}:ci-candidate-${{ matrix.major }}-${{ matrix.arch }}'
           format: 'sarif'
           vuln-type: 'os,library'
           severity: 'CRITICAL,HIGH'
           ignore-unfixed: true
+          output: 'trivy-results-${{ matrix.major }}-${{ matrix.arch }}.sarif'
           exit-code: '0'
-          output: 'trivy-results-${{ matrix.major }}.sarif'
 
-      - name: Upload Trivy SARIF to code scanning
+      - name: Upload Trivy SARIF to code scanning (${{ matrix.major }} / ${{ matrix.arch }})
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@38112626f97ac1fd7acf3df7ebca51f4677c1b38 # codeql-bundle-v2.27.6
         with:
-          sarif_file: 'trivy-results-${{ matrix.major }}.sarif'
-          category: trivy-mariadb-${{ matrix.major }}
-
-      - name: Upload Trivy reports (90-day retention)
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: trivy-reports-${{ matrix.major }}
-          path: |
-            trivy-report-${{ matrix.major }}.txt
-            trivy-report-${{ matrix.major }}.json
-            trivy-results-${{ matrix.major }}.sarif
-          retention-days: 90
-          if-no-files-found: ignore
+          sarif_file: 'trivy-results-${{ matrix.major }}-${{ matrix.arch }}.sarif'
+          category: trivy-mariadb-${{ matrix.major }}-${{ matrix.arch }}
 
       - name: Scan image with Trivy — HARD GATE (0 fixable CRITICAL/HIGH)
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: '${{ env.IMAGE_NAME }}:ci-candidate-${{ matrix.major }}'
+          image-ref: '${{ env.IMAGE_NAME }}:ci-candidate-${{ matrix.major }}-${{ matrix.arch }}'
           format: 'table'
           vuln-type: 'os,library'
           severity: 'CRITICAL,HIGH'
           ignore-unfixed: true
           exit-code: '1'
 
-      - name: Scan image with Grype — HARD GATE (0 fixable CRITICAL/HIGH)
-        id: grype
-        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        uses: anchore/scan-action@v7
-        with:
-          image: '${{ env.IMAGE_NAME }}:ci-candidate-${{ matrix.major }}'
-          only-fixed: true
-          severity-cutoff: high
-          fail-build: true
-          output-format: table
-          output-file: 'grype-report-${{ matrix.major }}.txt'
+      - name: Scan SPDX SBOM with Grype — HARD GATE (0 fixable CRITICAL/HIGH)
+        shell: bash
+        env:
+          MAJOR: ${{ matrix.major }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          grype "sbom:sbom-${MAJOR}-${ARCH}.spdx.json" --only-fixed --fail-on high -o table | tee "grype-report-${MAJOR}-${ARCH}.txt"
 
-      - name: Upload Grype report (90-day retention)
-        if: always() && steps.build.outcome == 'success'
-        uses: actions/upload-artifact@v7
+      - name: Log in to GHCR for verified per-arch digest staging
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
-          name: grype-report-${{ matrix.major }}
-          path: 'grype-report-${{ matrix.major }}.txt'
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push verified ${{ matrix.major }} (${{ matrix.platform }}) manifest by digest to GHCR
+        id: push_digest
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          provenance: false
+          sbom: false
+          outputs: type=image,name=ghcr.io/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+          build-args: |
+            GO_BASE=${{ needs.resolve.outputs.go_base }}
+            DEBIAN_BASE=${{ needs.resolve.outputs.debian_base }}
+            MARIADB_MAJOR=${{ matrix.major }}
+            MARIADB_VERSION=${{ steps.ver.outputs.version }}
+            GPG_KEYS=${{ env.GPG_KEYS }}
+            GOSU_VERSION=${{ needs.resolve.outputs.gosu_version }}
+            GO_VERSION=${{ needs.resolve.outputs.go_version }}
+            IMAGE_CREATED=${{ needs.resolve.outputs.created }}
+            IMAGE_REVISION=${{ github.sha }}
+            IMAGE_SOURCE=https://github.com/${{ github.repository }}
+
+      - name: Record per-track per-arch metadata
+        shell: bash
+        env:
+          MAJOR: ${{ matrix.major }}
+          ARCH: ${{ matrix.arch }}
+          VER: ${{ steps.ver.outputs.version }}
+          DIGEST: ${{ steps.push_digest.outputs.digest }}
+          DEBIAN_VERSION: ${{ steps.inspect_image.outputs.debian_version }}
+          SIZE_BYTES: ${{ steps.inspect_image.outputs.size_bytes }}
+          SIZE_MB: ${{ steps.inspect_image.outputs.size_mb }}
+        run: |
+          set -euo pipefail
+          jq -n \
+            --arg major "$MAJOR" \
+            --arg arch "$ARCH" \
+            --arg version "$VER" \
+            --arg digest "$DIGEST" \
+            --arg debian_version "$DEBIAN_VERSION" \
+            --arg size_mb "$SIZE_MB" \
+            --argjson size_bytes "$SIZE_BYTES" \
+            '{major: $major, arch: $arch, version: $version, digest: $digest, debian_version: $debian_version, size_mb: $size_mb, size_bytes: $size_bytes}' \
+            > "arch-meta-${MAJOR}-${ARCH}.json"
+
+      - name: Upload per-track per-arch reports, SBOMs, and metadata
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: arch-artifacts-${{ matrix.major }}-${{ matrix.arch }}
+          path: |
+            arch-meta-${{ matrix.major }}-${{ matrix.arch }}.json
+            sbom-${{ matrix.major }}-${{ matrix.arch }}.spdx.json
+            sbom-${{ matrix.major }}-${{ matrix.arch }}.cdx.json
+            trivy-report-${{ matrix.major }}-${{ matrix.arch }}.txt
+            trivy-report-${{ matrix.major }}-${{ matrix.arch }}.json
+            cve-diff-${{ matrix.major }}-${{ matrix.arch }}.json
+            grype-report-${{ matrix.major }}-${{ matrix.arch }}.txt
           retention-days: 90
           if-no-files-found: ignore
 
-      - name: Generate SBOM with Syft
-        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        uses: anchore/sbom-action@v0
+  publish:
+    name: Publish multi-arch indexes (11.8 & 12.3), Cosign sign/attest, SLSA L3, and Release
+    needs: [resolve, build-test-scan]
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          image: '${{ env.IMAGE_NAME }}:ci-candidate-${{ matrix.major }}'
-          format: 'spdx-json'
-          output-file: 'sbom-${{ matrix.major }}.spdx.json'
-          upload-artifact: false
+          persist-credentials: false
 
-      - name: Generate build provenance record
+      - name: Download per-track per-arch artifacts
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: .ci-in
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Install verified crane
         shell: bash
         run: |
           set -euo pipefail
-          IMAGE_ID="$(docker inspect --format '{{.Id}}' "${IMAGE_NAME}:ci-candidate-${{ matrix.major }}")"
-          python3 - "${IMAGE_ID}" <<'PY'
-          import json, os, sys
-          prov = {
-              "image": os.environ["IMAGE_NAME"],
-              "major": os.environ["MAJOR"],
-              "version": os.environ["VERSION"],
-              "debian_version": os.environ["DEBIAN_VER"],
-              "go_version": os.environ["GO_VER"],
-              "gosu_version": os.environ["GOSU_VER"],
-              "image_id": sys.argv[1],
-              "source": f"https://github.com/{os.environ['GITHUB_REPOSITORY']}",
-              "revision": os.environ["GITHUB_SHA"],
-              "workflow_run_id": os.environ["GITHUB_RUN_ID"],
-              "created": os.environ["CREATED"],
-          }
-          with open(f"provenance-{os.environ['MAJOR']}.json", "w", encoding="utf-8") as fh:
-              json.dump(prov, fh, indent=2)
-          PY
-        env:
-          MAJOR: ${{ matrix.major }}
-          VERSION: ${{ steps.resolve.outputs.mariadb_version }}
-          DEBIAN_VER: ${{ steps.inspect.outputs.debian_version }}
-          GO_VER: ${{ steps.resolve.outputs.go_version }}
-          GOSU_VER: ${{ steps.resolve.outputs.gosu_version }}
-          CREATED: ${{ steps.resolve.outputs.created }}
+          SHA="0ab7a1d6932a213aed964ce97666c3077fe691c8606413674a8b3e0b9ec4cda0"
+          curl -fsSLo /tmp/crane.tar.gz "https://github.com/google/go-containerregistry/releases/download/v0.22.1/go-containerregistry_Linux_x86_64.tar.gz"
+          echo "${SHA}  /tmp/crane.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/crane.tar.gz -C /tmp crane
+          install -m 0755 /tmp/crane /usr/local/bin/crane
+          rm -f /tmp/crane /tmp/crane.tar.gz
 
-      - name: Upload SBOM and provenance artifacts (90-day retention)
-        uses: actions/upload-artifact@v7
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@881c63bd87e38389154debd8331404ce7ca8a3ab # v4.1.4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
-          name: sbom-provenance-${{ matrix.major }}
-          path: |
-            sbom-${{ matrix.major }}.spdx.json
-            provenance-${{ matrix.major }}.json
-          retention-days: 90
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Check Docker Hub publish credentials
         id: hub_auth
@@ -272,213 +512,429 @@ jobs:
           DH_USER: ${{ secrets.DOCKERHUB_USERNAME }}
           DH_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
-          if [ "${{ github.event_name }}" != "pull_request" ] && [ -n "$DH_USER" ] && [ -n "$DH_TOKEN" ]; then
-            echo "can_publish=true" >> "$GITHUB_OUTPUT"
+          if [ -n "$DH_USER" ] && [ -n "$DH_TOKEN" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
           else
-            echo "can_publish=false" >> "$GITHUB_OUTPUT"
-            echo "Skipping Docker Hub push (PR event or DOCKERHUB_USERNAME/DOCKERHUB_TOKEN not configured)."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Docker Hub secrets not configured; publishing to GHCR only."
           fi
 
       - name: Log in to Docker Hub
-        if: steps.hub_auth.outputs.can_publish == 'true'
-        uses: docker/login-action@v4
+        if: steps.hub_auth.outputs.enabled == 'true'
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Tag and push verified image to Docker Hub
-        if: steps.hub_auth.outputs.can_publish == 'true'
-        id: push
-        shell: bash
-        run: |
-          set -euo pipefail
-          MAJOR="${{ matrix.major }}"
-          VER="${{ steps.resolve.outputs.mariadb_version }}"
-          DATE="${{ steps.resolve.outputs.build_date }}"
-          SHORT_SHA="${GITHUB_SHA::7}"
-          CANDIDATE="${IMAGE_NAME}:ci-candidate-${MAJOR}"
-
-          TAGS=(
-            "${IMAGE_NAME}:${VER}-${DATE}"
-            "${IMAGE_NAME}:${VER}"
-            "${IMAGE_NAME}:${MAJOR}"
-            "${IMAGE_NAME}:latest-${MAJOR}"
-            "${IMAGE_NAME}:${MAJOR}-sha-${SHORT_SHA}"
-          )
-          if [ "${{ matrix.is_default_latest }}" = "true" ]; then
-            TAGS+=("${IMAGE_NAME}:latest" "${IMAGE_NAME}:sha-${SHORT_SHA}")
-          fi
-
-          for tag in "${TAGS[@]}"; do
-            docker tag "${CANDIDATE}" "${tag}"
-            docker push "${tag}"
-          done
-
-          DIGEST="$(docker inspect --format='{{index .RepoDigests 0}}' "${IMAGE_NAME}:${MAJOR}")"
-          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
-          echo "Published digest for ${MAJOR}: ${DIGEST}"
-
-      - name: Write build metadata for docs sync
+      - name: Assemble 11.8 & 12.3 multi-arch indexes on GHCR and mirror identical digests to Docker Hub
+        id: index
         shell: bash
         env:
-          MAJOR: ${{ matrix.major }}
-          VERSION: ${{ steps.resolve.outputs.mariadb_version }}
-          PREV_VERSION: ${{ steps.resolve.outputs.prev_mariadb_version }}
-          DEBIAN_VER: ${{ steps.inspect.outputs.debian_version }}
-          GO_VER: ${{ steps.resolve.outputs.go_version }}
-          GOSU_VER: ${{ steps.resolve.outputs.gosu_version }}
-          DATE_ISO: ${{ steps.resolve.outputs.date_iso }}
-          DIGEST: ${{ steps.push.outputs.digest }}
+          V118: ${{ needs.resolve.outputs.v118 }}
+          V123: ${{ needs.resolve.outputs.v123 }}
+          BDATE: ${{ needs.resolve.outputs.build_date }}
+          HUB_ENABLED: ${{ steps.hub_auth.outputs.enabled }}
         run: |
-          python3 - <<'PY'
-          import json, os
-          major = os.environ["MAJOR"]
-          cves = set()
-          fixable_ch = 0
-          trivy_path = f"trivy-report-{major}.json"
-          if os.path.exists(trivy_path):
-              data = json.load(open(trivy_path, encoding="utf-8"))
-              for res in data.get("Results", []):
-                  for v in res.get("Vulnerabilities") or []:
-                      cves.add(v.get("VulnerabilityID", ""))
-                      if v.get("FixedVersion") and v.get("Severity") in ("CRITICAL", "HIGH"):
-                          fixable_ch += 1
-          meta = {
-              "major": major,
-              "version": os.environ["VERSION"],
-              "prev_version": os.environ.get("PREV_VERSION", ""),
-              "debian_version": os.environ["DEBIAN_VER"],
-              "go_version": os.environ["GO_VER"],
-              "gosu_version": os.environ["GOSU_VER"],
-              "date_iso": os.environ["DATE_ISO"],
-              "digest": os.environ.get("DIGEST", "") or "pending-hub-publish",
-              "trivy_fixable_critical_high": fixable_ch,
-              "grype_fixable_critical_high": 0,
-              "cves_seen": sorted(c for c in cves if c),
-          }
-          with open(f"meta-{major}.json", "w", encoding="utf-8") as fh:
-              json.dump(meta, fh, indent=2)
-          PY
+          set -euo pipefail
+          SHA_SHORT="${GITHUB_SHA::7}"
 
-      - name: Upload build metadata artifact
-        uses: actions/upload-artifact@v7
+          # MariaDB 11.8 LTS
+          D118_AMD64="$(jq -r '.digest' .ci-in/arch-artifacts-11.8-amd64/arch-meta-11.8-amd64.json)"
+          D118_ARM64="$(jq -r '.digest' .ci-in/arch-artifacts-11.8-arm64/arch-meta-11.8-arm64.json)"
+          docker buildx imagetools create \
+            -t "ghcr.io/${IMAGE_NAME}:11.8" \
+            -t "ghcr.io/${IMAGE_NAME}:latest-11.8" \
+            -t "ghcr.io/${IMAGE_NAME}:${V118}" \
+            -t "ghcr.io/${IMAGE_NAME}:${V118}-${BDATE}" \
+            -t "ghcr.io/${IMAGE_NAME}:11.8-sha-${SHA_SHORT}" \
+            "ghcr.io/${IMAGE_NAME}@${D118_AMD64}" \
+            "ghcr.io/${IMAGE_NAME}@${D118_ARM64}"
+          IDX_118="$(crane digest "ghcr.io/${IMAGE_NAME}:11.8")"
+
+          # MariaDB 12.3 LTS (also :latest and :sha-<short>)
+          D123_AMD64="$(jq -r '.digest' .ci-in/arch-artifacts-12.3-amd64/arch-meta-12.3-amd64.json)"
+          D123_ARM64="$(jq -r '.digest' .ci-in/arch-artifacts-12.3-arm64/arch-meta-12.3-arm64.json)"
+          docker buildx imagetools create \
+            -t "ghcr.io/${IMAGE_NAME}:latest" \
+            -t "ghcr.io/${IMAGE_NAME}:12.3" \
+            -t "ghcr.io/${IMAGE_NAME}:latest-12.3" \
+            -t "ghcr.io/${IMAGE_NAME}:${V123}" \
+            -t "ghcr.io/${IMAGE_NAME}:${V123}-${BDATE}" \
+            -t "ghcr.io/${IMAGE_NAME}:12.3-sha-${SHA_SHORT}" \
+            -t "ghcr.io/${IMAGE_NAME}:sha-${SHA_SHORT}" \
+            "ghcr.io/${IMAGE_NAME}@${D123_AMD64}" \
+            "ghcr.io/${IMAGE_NAME}@${D123_ARM64}"
+          IDX_123="$(crane digest "ghcr.io/${IMAGE_NAME}:12.3")"
+
+          if [ "$HUB_ENABLED" = "true" ]; then
+            crane copy "ghcr.io/${IMAGE_NAME}@${IDX_118}" "index.docker.io/${IMAGE_NAME}:11.8"
+            for tag in "latest-11.8" "${V118}" "${V118}-${BDATE}" "11.8-sha-${SHA_SHORT}"; do
+              crane tag "index.docker.io/${IMAGE_NAME}@${IDX_118}" "${tag}"
+            done
+            HUB_118="$(crane digest "index.docker.io/${IMAGE_NAME}:11.8")"
+            test "${HUB_118}" = "${IDX_118}"
+
+            crane copy "ghcr.io/${IMAGE_NAME}@${IDX_123}" "index.docker.io/${IMAGE_NAME}:12.3"
+            for tag in "latest" "latest-12.3" "${V123}" "${V123}-${BDATE}" "12.3-sha-${SHA_SHORT}" "sha-${SHA_SHORT}"; do
+              crane tag "index.docker.io/${IMAGE_NAME}@${IDX_123}" "${tag}"
+            done
+            HUB_123="$(crane digest "index.docker.io/${IMAGE_NAME}:12.3")"
+            test "${HUB_123}" = "${IDX_123}"
+          fi
+
+          {
+            echo "idx_118=${IDX_118}"
+            echo "d118_amd64=${D118_AMD64}"
+            echo "d118_arm64=${D118_ARM64}"
+            echo "idx_123=${IDX_123}"
+            echo "d123_amd64=${D123_AMD64}"
+            echo "d123_arm64=${D123_ARM64}"
+            echo "release_tag=${V123}-${BDATE}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Keyless Cosign sign and SBOM attest both series (GHCR + Docker Hub)
+        shell: bash
+        env:
+          IDX_118: ${{ steps.index.outputs.idx_118 }}
+          D118_AMD64: ${{ steps.index.outputs.d118_amd64 }}
+          D118_ARM64: ${{ steps.index.outputs.d118_arm64 }}
+          IDX_123: ${{ steps.index.outputs.idx_123 }}
+          D123_AMD64: ${{ steps.index.outputs.d123_amd64 }}
+          D123_ARM64: ${{ steps.index.outputs.d123_arm64 }}
+          HUB_ENABLED: ${{ steps.hub_auth.outputs.enabled }}
+        run: |
+          set -euo pipefail
+          REGISTRIES=("ghcr.io/${IMAGE_NAME}")
+          if [ "$HUB_ENABLED" = "true" ]; then
+            REGISTRIES+=("index.docker.io/${IMAGE_NAME}")
+          fi
+
+          for reg in "${REGISTRIES[@]}"; do
+            for dig in "$IDX_118" "$D118_AMD64" "$D118_ARM64" "$IDX_123" "$D123_AMD64" "$D123_ARM64"; do
+              cosign sign --yes "${reg}@${dig}"
+            done
+            cosign attest --yes --predicate .ci-in/arch-artifacts-11.8-amd64/sbom-11.8-amd64.spdx.json --type spdxjson "${reg}@${D118_AMD64}"
+            cosign attest --yes --predicate .ci-in/arch-artifacts-11.8-amd64/sbom-11.8-amd64.cdx.json --type cyclonedx "${reg}@${D118_AMD64}"
+            cosign attest --yes --predicate .ci-in/arch-artifacts-11.8-arm64/sbom-11.8-arm64.spdx.json --type spdxjson "${reg}@${D118_ARM64}"
+            cosign attest --yes --predicate .ci-in/arch-artifacts-11.8-arm64/sbom-11.8-arm64.cdx.json --type cyclonedx "${reg}@${D118_ARM64}"
+            cosign attest --yes --predicate .ci-in/arch-artifacts-12.3-amd64/sbom-12.3-amd64.spdx.json --type spdxjson "${reg}@${D123_AMD64}"
+            cosign attest --yes --predicate .ci-in/arch-artifacts-12.3-amd64/sbom-12.3-amd64.cdx.json --type cyclonedx "${reg}@${D123_AMD64}"
+            cosign attest --yes --predicate .ci-in/arch-artifacts-12.3-arm64/sbom-12.3-arm64.spdx.json --type spdxjson "${reg}@${D123_ARM64}"
+            cosign attest --yes --predicate .ci-in/arch-artifacts-12.3-arm64/sbom-12.3-arm64.cdx.json --type cyclonedx "${reg}@${D123_ARM64}"
+          done
+
+      - name: Attest SLSA Build L3 provenance — 11.8 (GHCR)
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          name: build-meta-${{ matrix.major }}
-          path: meta-${{ matrix.major }}.json
+          subject-name: ghcr.io/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.index.outputs.idx_118 }}
+          push-to-registry: true
+
+      - name: Attest SLSA Build L3 provenance — 12.3 (GHCR)
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.index.outputs.idx_123 }}
+          push-to-registry: true
+
+      - name: Attest SLSA Build L3 provenance — 11.8 (Docker Hub)
+        if: steps.hub_auth.outputs.enabled == 'true'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: index.docker.io/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.index.outputs.idx_118 }}
+          push-to-registry: true
+
+      - name: Attest SLSA Build L3 provenance — 12.3 (Docker Hub)
+        if: steps.hub_auth.outputs.enabled == 'true'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: index.docker.io/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.index.outputs.idx_123 }}
+          push-to-registry: true
+
+      - name: Publish signed GitHub Release with SBOMs and checksums
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.index.outputs.release_tag }}
+          V118: ${{ needs.resolve.outputs.v118 }}
+          V123: ${{ needs.resolve.outputs.v123 }}
+          IDX_118: ${{ steps.index.outputs.idx_118 }}
+          D118_AMD64: ${{ steps.index.outputs.d118_amd64 }}
+          D118_ARM64: ${{ steps.index.outputs.d118_arm64 }}
+          IDX_123: ${{ steps.index.outputs.idx_123 }}
+          D123_AMD64: ${{ steps.index.outputs.d123_amd64 }}
+          D123_ARM64: ${{ steps.index.outputs.d123_arm64 }}
+          HUB_ENABLED: ${{ steps.hub_auth.outputs.enabled }}
+        run: |
+          set -euo pipefail
+          mkdir -p .rel
+          cp .ci-in/arch-artifacts-11.8-amd64/sbom-11.8-amd64.*.json .rel/
+          cp .ci-in/arch-artifacts-11.8-arm64/sbom-11.8-arm64.*.json .rel/
+          cp .ci-in/arch-artifacts-12.3-amd64/sbom-12.3-amd64.*.json .rel/
+          cp .ci-in/arch-artifacts-12.3-arm64/sbom-12.3-arm64.*.json .rel/
+
+          DEBIAN_VER="$(jq -r '.debian_version' .ci-in/arch-artifacts-12.3-amd64/arch-meta-12.3-amd64.json)"
+          S118_AMD="$(jq -r '.size_mb' .ci-in/arch-artifacts-11.8-amd64/arch-meta-11.8-amd64.json)"
+          S118_ARM="$(jq -r '.size_mb' .ci-in/arch-artifacts-11.8-arm64/arch-meta-11.8-arm64.json)"
+          S123_AMD="$(jq -r '.size_mb' .ci-in/arch-artifacts-12.3-amd64/arch-meta-12.3-amd64.json)"
+          S123_ARM="$(jq -r '.size_mb' .ci-in/arch-artifacts-12.3-arm64/arch-meta-12.3-arm64.json)"
+
+          (
+            cd .rel
+            {
+              echo "# Multi-arch OCI digests"
+              echo "${IDX_118}  ghcr.io/${IMAGE_NAME}:11.8"
+              [ "$HUB_ENABLED" = "true" ] && echo "${IDX_118}  docker.io/${IMAGE_NAME}:11.8"
+              echo "${D118_AMD64}  11.8-linux/amd64"
+              echo "${D118_ARM64}  11.8-linux/arm64"
+              echo "${IDX_123}  ghcr.io/${IMAGE_NAME}:12.3"
+              [ "$HUB_ENABLED" = "true" ] && echo "${IDX_123}  docker.io/${IMAGE_NAME}:12.3"
+              echo "${D123_AMD64}  12.3-linux/amd64"
+              echo "${D123_ARM64}  12.3-linux/arm64"
+              echo "# SBOM SHA-256 checksums"
+              sha256sum sbom-*.json
+            } > checksums.txt
+            cosign sign-blob --yes --bundle checksums.txt.sigstore.json checksums.txt
+          )
+
+          cat > .rel/notes.md <<EOF
+          ## MariaDB 11.8 LTS (\`${V118}\`) & 12.3 LTS (\`${V123}\`) — ${TAG}
+
+          Maintained by **Daniel G. Cosenza from FNX Labs**.
+
+          ### Verified Components
+          - **MariaDB 11.8 LTS:** \`${V118}\` (\`amd64\`: ${S118_AMD} MB, \`arm64\`: ${S118_ARM} MB)
+          - **MariaDB 12.3 LTS:** \`${V123}\` (\`amd64\`: ${S123_AMD} MB, \`arm64\`: ${S123_ARM} MB)
+          - **Step-down helper:** \`gosu ${{ needs.resolve.outputs.gosu_version }}\` compiled with Go \`${{ needs.resolve.outputs.go_version }}\`
+          - **Base OS:** Debian \`${DEBIAN_VER}\` (\`trixie-slim\`)
+          - **Security gate:** 0 fixable Critical/High (Trivy + Grype on SPDX SBOM), Dive efficiency >= 95%
+
+          ### Identical Multi-Arch Digests (GHCR & Docker Hub)
+          - **11.8 LTS:** \`ghcr.io/${IMAGE_NAME}@${IDX_118}\` / \`${IMAGE_NAME}@${IDX_118}\`
+          - **12.3 LTS:** \`ghcr.io/${IMAGE_NAME}@${IDX_123}\` / \`${IMAGE_NAME}@${IDX_123}\`
+
+          ### Cosign Verification
+          \`\`\`bash
+          cosign verify \\
+            --certificate-identity-regexp="^https://github\\.com/${GITHUB_REPOSITORY}/\\.github/workflows/daily\\.yml@refs/heads/main$" \\
+            --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \\
+            ghcr.io/${IMAGE_NAME}@${IDX_123}
+          \`\`\`
+          EOF
+
+          if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "$TAG" -R "$GITHUB_REPOSITORY" --title "MariaDB ${V123} & ${V118} (${TAG})" --notes-file .rel/notes.md
+            gh release upload "$TAG" -R "$GITHUB_REPOSITORY" --clobber .rel/checksums.txt .rel/checksums.txt.sigstore.json .rel/sbom-*.json
+          else
+            gh release create "$TAG" -R "$GITHUB_REPOSITORY" \
+              --title "MariaDB ${V123} & ${V118} (${TAG})" \
+              --notes-file .rel/notes.md \
+              .rel/checksums.txt .rel/checksums.txt.sigstore.json .rel/sbom-*.json
+          fi
+
+      - name: Build updated versions metadata
+        shell: bash
+        env:
+          IDX_118: ${{ steps.index.outputs.idx_118 }}
+          IDX_123: ${{ steps.index.outputs.idx_123 }}
+          HUB_ENABLED: ${{ steps.hub_auth.outputs.enabled }}
+        run: |
+          set -euo pipefail
+          DEBIAN_VER="$(jq -r '.debian_version' .ci-in/arch-artifacts-12.3-amd64/arch-meta-12.3-amd64.json)"
+          S118_AMD="$(jq -r '.size_mb' .ci-in/arch-artifacts-11.8-amd64/arch-meta-11.8-amd64.json)"
+          S118_ARM="$(jq -r '.size_mb' .ci-in/arch-artifacts-11.8-arm64/arch-meta-11.8-arm64.json)"
+          S123_AMD="$(jq -r '.size_mb' .ci-in/arch-artifacts-12.3-amd64/arch-meta-12.3-amd64.json)"
+          S123_ARM="$(jq -r '.size_mb' .ci-in/arch-artifacts-12.3-arm64/arch-meta-12.3-arm64.json)"
+
+          HUB_118=""
+          HUB_123=""
+          if [ "$HUB_ENABLED" = "true" ]; then
+            HUB_118="${IMAGE_NAME}@${IDX_118}"
+            HUB_123="${IMAGE_NAME}@${IDX_123}"
+          fi
+
+          jq -n \
+            --arg last_updated "${{ needs.resolve.outputs.build_date_iso }}" \
+            --arg debian_version "${DEBIAN_VER}" \
+            --arg base_digest "${{ needs.resolve.outputs.base_digest }}" \
+            --arg go_version "${{ needs.resolve.outputs.go_version }}" \
+            --arg gosu_version "${{ needs.resolve.outputs.gosu_version }}" \
+            --arg v118 "${{ needs.resolve.outputs.v118 }}" \
+            --arg v123 "${{ needs.resolve.outputs.v123 }}" \
+            --arg hub_118 "${HUB_118}" \
+            --arg hub_123 "${HUB_123}" \
+            --arg ghcr_118 "ghcr.io/${IMAGE_NAME}@${IDX_118}" \
+            --arg ghcr_123 "ghcr.io/${IMAGE_NAME}@${IDX_123}" \
+            --arg s118_amd "${S118_AMD}" \
+            --arg s118_arm "${S118_ARM}" \
+            --arg s123_amd "${S123_AMD}" \
+            --arg s123_arm "${S123_ARM}" \
+            --slurpfile c118 .ci-in/arch-artifacts-11.8-amd64/cve-diff-11.8-amd64.json \
+            --slurpfile c123 .ci-in/arch-artifacts-12.3-amd64/cve-diff-12.3-amd64.json \
+            '{
+              last_updated: $last_updated,
+              debian_version: $debian_version,
+              base_digest: $base_digest,
+              go_version: $go_version,
+              gosu_version: $gosu_version,
+              architectures: ["linux/amd64", "linux/arm64"],
+              signed: true,
+              slsa_provenance: true,
+              tracks: {
+                "11.8": {
+                  version: $v118,
+                  digest: $hub_118,
+                  ghcr_digest: $ghcr_118,
+                  sizes_mb: { amd64: $s118_amd, arm64: $s118_arm },
+                  trivy_fixable_critical_high: ($c118[0].fixable_critical_high // 0),
+                  grype_fixable_critical_high: 0,
+                  unfixed_cves: ($c118[0].unfixed_cves // [])
+                },
+                "12.3": {
+                  version: $v123,
+                  digest: $hub_123,
+                  ghcr_digest: $ghcr_123,
+                  sizes_mb: { amd64: $s123_amd, arm64: $s123_arm },
+                  trivy_fixable_critical_high: ($c123[0].fixable_critical_high // 0),
+                  grype_fixable_critical_high: 0,
+                  unfixed_cves: ($c123[0].unfixed_cves // [])
+                }
+              }
+            }' > versions-new.json
+
+      - name: Upload release metadata artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-metadata
+          path: versions-new.json
           retention-days: 90
 
   update-docs:
-    needs: [public-check, build-scan-publish]
+    name: Update docs and sync Docker Hub overview
+    needs: publish
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
+      - name: Checkout main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: main
           fetch-depth: 0
+          persist-credentials: false
 
-      - name: Download build metadata artifacts
-        uses: actions/download-artifact@v8
+      - name: Download release metadata
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          pattern: build-meta-*
-          path: build-meta
+          name: release-metadata
+          path: .ci-meta
 
       - name: Update versions.json, README.md, and CHANGELOG.md
-        run: python3 .github/scripts/update-docs.py build-meta
-
-      - name: Re-run public content check before committing
-        run: .github/scripts/public-check.sh
-
-      - name: Commit and push automated documentation updates
         shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/update-docs.py .ci-meta/versions-new.json
+          rm -rf .ci-meta
+          .github/scripts/public-check.sh
+
+      - name: Commit and push updated documentation (if changed)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           if [ -n "$(git status --porcelain versions.json README.md CHANGELOG.md)" ]; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add versions.json README.md CHANGELOG.md
-            git commit -m "chore(docs): update versions and changelog [skip ci]"
+            git commit -m "chore(docs): update daily build metadata and changelog [skip ci]"
+            git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+            git pull --rebase origin main
             git push origin HEAD:main
           else
-            echo "No documentation changes to commit."
+            echo "No documentation or version metadata changes to commit."
           fi
 
-      - name: Check Docker Hub description sync credentials
-        id: hub_desc_auth
+      - name: Check Docker Hub sync credentials
+        id: hub_sync
         shell: bash
         env:
           DH_USER: ${{ secrets.DOCKERHUB_USERNAME }}
           DH_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
-          DESC="$(tr -d '\r\n' < DOCKERHUB_SHORT_DESCRIPTION)"
-          if [ "${#DESC}" -gt 100 ]; then
-            echo "ERROR: DOCKERHUB_SHORT_DESCRIPTION exceeds 100 characters (${#DESC})" >&2
-            exit 1
-          fi
-          echo "text=${DESC}" >> "$GITHUB_OUTPUT"
           if [ -n "$DH_USER" ] && [ -n "$DH_TOKEN" ]; then
-            echo "can_sync=true" >> "$GITHUB_OUTPUT"
+            DESC="$(tr -d '\r\n' < DOCKERHUB_SHORT_DESCRIPTION)"
+            if [ "${#DESC}" -gt 100 ]; then
+              echo "ERROR: DOCKERHUB_SHORT_DESCRIPTION exceeds 100 characters (${#DESC})." >&2
+              exit 1
+            fi
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "short_desc=${DESC}" >> "$GITHUB_OUTPUT"
           else
-            echo "can_sync=false" >> "$GITHUB_OUTPUT"
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Sync Docker Hub overview and short description
-        if: steps.hub_desc_auth.outputs.can_sync == 'true'
-        uses: peter-evans/dockerhub-description@v5
+      - name: Sync Docker Hub repository overview (short & full description)
+        if: steps.hub_sync.outputs.enabled == 'true'
+        uses: peter-evans/dockerhub-description@1b9a80c056b620d92cedb9d9b5a223409c68ddfa # v5.0.0
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
           repository: ${{ env.IMAGE_NAME }}
-          short-description: ${{ steps.hub_desc_auth.outputs.text }}
+          short-description: ${{ steps.hub_sync.outputs.short_desc }}
           readme-filepath: ./README.md
 
-  alert:
-    needs: [public-check, build-scan-publish, update-docs]
+  alert-on-status:
+    name: Manage CI failure alert issue
+    needs: [public-check, hadolint, gitleaks, resolve, build-test-scan, publish, update-docs]
     if: always() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       issues: write
     steps:
-      - name: Open, update, or close ci-failure issue
+      - name: Open/update or auto-close ci-failure issue
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           RES_PUBLIC: ${{ needs.public-check.result }}
-          RES_BUILD: ${{ needs.build-scan-publish.result }}
+          RES_HADOLINT: ${{ needs.hadolint.result }}
+          RES_GITLEAKS: ${{ needs.gitleaks.result }}
+          RES_RESOLVE: ${{ needs.resolve.result }}
+          RES_BUILD: ${{ needs.build-test-scan.result }}
+          RES_PUBLISH: ${{ needs.publish.result }}
           RES_DOCS: ${{ needs.update-docs.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
-          gh label create ci-failure --repo "$REPO" --color B60205 --description "Automated daily CI failure alert" 2>/dev/null || true
-          OPEN_NUM="$(gh issue list --repo "$REPO" --label ci-failure --state open --json number --jq '.[0].number // empty')"
+          FAILED=()
+          [ "$RES_PUBLIC" != "success" ] && FAILED+=("public-check (${RES_PUBLIC})")
+          [ "$RES_HADOLINT" != "success" ] && FAILED+=("hadolint (${RES_HADOLINT})")
+          [ "$RES_GITLEAKS" != "success" ] && FAILED+=("gitleaks (${RES_GITLEAKS})")
+          [ "$RES_RESOLVE" != "success" ] && FAILED+=("resolve (${RES_RESOLVE})")
+          [ "$RES_BUILD" != "success" ] && FAILED+=("build-test-scan (${RES_BUILD})")
+          [ "$RES_PUBLISH" != "success" ] && FAILED+=("publish (${RES_PUBLISH})")
+          [ "$RES_DOCS" != "success" ] && FAILED+=("update-docs (${RES_DOCS})")
 
-          FAILED_STEPS=()
-          [ "$RES_PUBLIC" != "success" ] && FAILED_STEPS+=("public-check ($RES_PUBLIC)")
-          [ "$RES_BUILD" != "success" ] && FAILED_STEPS+=("build-scan-publish ($RES_BUILD)")
-          if [ "$RES_DOCS" != "success" ] && [ "$RES_DOCS" != "skipped" ]; then
-            FAILED_STEPS+=("update-docs ($RES_DOCS)")
-          fi
+          OPEN_ISSUE="$(gh issue list -R "$GITHUB_REPOSITORY" --label ci-failure --state open --json number --jq '.[0].number // empty')"
 
-          if [ "${#FAILED_STEPS[@]}" -gt 0 ]; then
-            SUMMARY="$(IFS=', '; echo "${FAILED_STEPS[*]}")"
-            TITLE="Daily build failed: ${SUMMARY}"
-            BODY="Automated daily pipeline failure on \`main\`.
-
-          - **Failing job(s):** ${SUMMARY}
-          - **Workflow run:** ${RUN_URL}
-          - **Commit:** \`${GITHUB_SHA}\`
-
-          This issue will auto-close on the next green run."
-            if [ -n "$OPEN_NUM" ]; then
-              gh issue edit "$OPEN_NUM" --repo "$REPO" --title "$TITLE" --body "$BODY"
+          if [ "${#FAILED[@]}" -gt 0 ]; then
+            gh label create ci-failure --repo "$GITHUB_REPOSITORY" --color B60205 --description "Automated daily CI failure alert" --force >/dev/null 2>&1 || true
+            FAIL_LIST="$(IFS=', '; echo "${FAILED[*]}")"
+            TITLE="Daily build failed: ${FAIL_LIST}"
+            BODY="$(printf 'Automated daily pipeline failed on `%s` (%s UTC).\n\n- **Failing job(s):** %s\n- **Event:** `%s`\n- **Workflow run:** %s\n' \
+              "$GITHUB_REF_NAME" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$FAIL_LIST" "${{ github.event_name }}" "$RUN_URL")"
+            if [ -n "$OPEN_ISSUE" ]; then
+              gh issue edit "$OPEN_ISSUE" -R "$GITHUB_REPOSITORY" --title "$TITLE" --body "$BODY"
+              gh issue comment "$OPEN_ISSUE" -R "$GITHUB_REPOSITORY" --body "Latest failing run: ${RUN_URL} (${FAIL_LIST})."
             else
-              gh issue create --repo "$REPO" --label ci-failure --title "$TITLE" --body "$BODY"
+              gh issue create -R "$GITHUB_REPOSITORY" --label ci-failure --title "$TITLE" --body "$BODY"
             fi
+          elif [ -n "$OPEN_ISSUE" ]; then
+            gh issue comment "$OPEN_ISSUE" -R "$GITHUB_REPOSITORY" --body "Daily pipeline recovered and passed on ${RUN_URL}. Closing automatically."
+            gh issue close "$OPEN_ISSUE" -R "$GITHUB_REPOSITORY"
           else
-            if [ -n "$OPEN_NUM" ]; then
-              gh issue close "$OPEN_NUM" --repo "$REPO" --comment "Resolved: daily build is green again (${RUN_URL})."
-            fi
+            echo "All jobs succeeded and no open ci-failure issue exists."
           fi

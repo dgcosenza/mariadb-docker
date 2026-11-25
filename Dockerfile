@@ -4,7 +4,8 @@
 # Maintainer: Daniel G. Cosenza from FNX Labs
 
 # ---- Build args (overridden daily by CI) ----
-ARG DEBIAN_VERSION=trixie-slim
+ARG GO_BASE=golang:1.27.4-trixie@sha256:430985542100b871e108ccc00e8dcc5eef08ca14ee5825e98ebf563d8ffec4ee
+ARG DEBIAN_BASE=debian:trixie-slim@sha256:8aa5a7bf5a1955bddbe7d74fcdd0b91ab30e74362a8b73af672b0481b35b44a0
 ARG MARIADB_MAJOR=11.8
 ARG MARIADB_VERSION=11.8.10
 ARG GOSU_VERSION=1.20
@@ -16,23 +17,28 @@ ARG IMAGE_REVISION=dev
 ARG IMAGE_SOURCE=https://github.com/dgcosenza/mariadb-docker
 
 # ---- Stage 1: Build gosu from source with a patched Go toolchain ----
-FROM golang:${GO_VERSION}-trixie AS gosu-builder
+FROM ${GO_BASE} AS gosu-builder
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 ARG GOSU_VERSION
 ARG TARGETOS=linux
 ARG TARGETARCH
 
+WORKDIR /src
+RUN git clone --depth 1 --branch "${GOSU_VERSION}" https://github.com/tianon/gosu.git /src/gosu
+
+WORKDIR /src/gosu
 RUN set -eux; \
-    git clone --depth 1 --branch "${GOSU_VERSION}" https://github.com/tianon/gosu.git /src/gosu; \
-    cd /src/gosu; \
     CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" \
         go build -trimpath -ldflags="-s -w" -o /out/gosu .; \
     go test ./...
 
 # ---- Stage 2: Runtime image ----
-FROM debian:${DEBIAN_VERSION} AS runtime
+FROM ${DEBIAN_BASE} AS runtime
 
-ARG DEBIAN_VERSION
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
 ARG MARIADB_MAJOR
 ARG MARIADB_VERSION
 ARG GOSU_VERSION
@@ -53,24 +59,22 @@ LABEL org.opencontainers.image.title="MariaDB on Debian 13 (trixie)" \
       org.opencontainers.image.documentation="${IMAGE_SOURCE}#readme" \
       org.opencontainers.image.vendor="Daniel G. Cosenza from FNX Labs" \
       org.opencontainers.image.authors="Daniel G. Cosenza from FNX Labs" \
-      org.opencontainers.image.licenses="GPL-2.0-only" \
-      org.opencontainers.image.base.name="docker.io/library/debian:${DEBIAN_VERSION}" \
+      org.opencontainers.image.licenses="GPL-2.0-only AND MIT" \
+      org.opencontainers.image.base.name="debian:trixie-slim" \
       io.github.dgcosenza.mariadb.major="${MARIADB_MAJOR}" \
       io.github.dgcosenza.mariadb.version="${MARIADB_VERSION}" \
       io.github.dgcosenza.mariadb.gosu="${GOSU_VERSION}" \
       io.github.dgcosenza.mariadb.go="${GO_VERSION}"
 
-# Create mysql user/group with consistent UID/GID 999 (docker-library convention)
-RUN groupadd --system --gid 999 mysql \
-    && useradd --system --uid 999 --gid 999 --home-dir /var/lib/mysql --shell /bin/bash --comment 'MariaDB server' mysql \
-    && install -d -m 0750 -o mysql -g mysql /var/lib/mysql /run/mysqld /docker-entrypoint-initdb.d
-
 # Install freshly compiled gosu (zero Go stdlib CVEs)
-COPY --from=gosu-builder /out/gosu /usr/local/bin/gosu
-RUN chmod 0755 /usr/local/bin/gosu && gosu --version && gosu nobody true
+COPY --from=gosu-builder --chmod=0755 /out/gosu /usr/local/bin/gosu
 
-# Upgrade base OS, verify MariaDB APT key, and install MariaDB from official Debian 13 repo
+# Create mysql user, upgrade base OS, verify MariaDB APT key, and install MariaDB
 RUN set -eux; \
+    groupadd --system --gid 999 mysql; \
+    useradd --system --uid 999 --gid 999 --home-dir /var/lib/mysql --shell /bin/bash --comment 'MariaDB server' mysql; \
+    gosu --version; \
+    gosu nobody true; \
     apt-get update; \
     apt-get -y upgrade; \
     apt-get install -y --no-install-recommends \
@@ -123,14 +127,16 @@ RUN set -eux; \
         "mariadb-backup=${MARIADB_DEB_VERSION}"; \
     \
     apt-mark auto '.*' > /dev/null; \
-    [ -z "${savedAptMark}" ] || apt-mark manual ${savedAptMark} "${PKG}" mariadb-backup > /dev/null; \
+    printf '%s\n' "${savedAptMark}" | xargs -r apt-mark manual > /dev/null; \
+    apt-mark manual "${PKG}" mariadb-backup > /dev/null; \
     apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false curl gpg; \
-    rm -rf /var/lib/apt/lists/*; \
+    apt-get clean; \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*; \
     \
     # Purge postinst skeleton and recreate runtime directories with proper ownership \
     rm -rf /var/lib/mysql; \
-    mkdir -p /var/lib/mysql /run/mysqld /etc/mysql/conf.d; \
-    chown -R mysql:mysql /var/lib/mysql /run/mysqld /etc/mysql/conf.d; \
+    mkdir -p /var/lib/mysql /run/mysqld /etc/mysql/conf.d /docker-entrypoint-initdb.d; \
+    chown -R mysql:mysql /var/lib/mysql /run/mysqld /etc/mysql/conf.d /docker-entrypoint-initdb.d; \
     chmod 1777 /run/mysqld; \
     \
     # Comment out host-specific directives \
@@ -145,9 +151,8 @@ RUN set -eux; \
     mariadbd --version; \
     mariadb-backup --version
 
-COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
-COPY healthcheck.sh /usr/local/bin/healthcheck.sh
-RUN chmod 0755 /usr/local/bin/docker-entrypoint.sh /usr/local/bin/healthcheck.sh
+COPY --chmod=0755 docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+COPY --chmod=0755 healthcheck.sh /usr/local/bin/healthcheck.sh
 
 ENV LANG=C.UTF-8 \
     GOSU_VERSION="${GOSU_VERSION}" \

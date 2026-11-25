@@ -8,6 +8,9 @@ Maintained by **Daniel G. Cosenza from FNX Labs**.
 
 ## [Unreleased]
 
+<!-- changelog:auto -->
+
+---
 
 ## [2026-11-25]
 
@@ -17,6 +20,7 @@ Maintained by **Daniel G. Cosenza from FNX Labs**.
 
 ### Security
 - Trivy and Grype gates verified: 0 fixable Critical/High vulnerabilities.
+
 ## [2026-11-24]
 
 ### Added

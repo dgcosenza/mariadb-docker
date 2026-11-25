@@ -1,123 +1,76 @@
-# docker-compose.example.yml
-# Example production deployment for dgcosenza/mariadb
-# Copy to docker-compose.yml and fill in .env values
-
 services:
-  # ------------------------------------------------------------
-  # MariaDB 11.8 (LTS) — Primary database for Nextcloud-like workloads
-  # ------------------------------------------------------------
-  mariadb-11:
+  mariadb11:
     image: dgcosenza/mariadb:11.8
-    container_name: mariadb-11
+    container_name: mariadb11
     restart: unless-stopped
+    read_only: true
+    cap_drop:
+      - ALL
     security_opt:
       - no-new-privileges:true
-    # Resource limits — adjust to your host capacity
-    deploy:
-      resources:
-        limits:
-          cpus: '1.00'
-          memory: 768M
-        reservations:
-          memory: 256M
+    tmpfs:
+      - /run/mysqld:uid=999,gid=999,mode=1777,size=16m
+      - /tmp:mode=1777,size=128m
     environment:
-      # Required: root password (use *_FILE for Docker secrets)
-      - MARIADB_ROOT_PASSWORD=${MARIADB_11_ROOT_PASSWORD}
-      # Optional: pre-create database and user
-      - MARIADB_DATABASE=${MARIADB_11_DATABASE:-app}
-      - MARIADB_USER=${MARIADB_11_USER:-app}
-      - MARIADB_PASSWORD=${MARIADB_11_PASSWORD}
-      # Optional: replication (uncomment and configure)
-      # - MARIADB_REPLICATION_USER=repl
-      # - MARIADB_REPLICATION_PASSWORD=${REPL_PASSWORD}
-      # - MARIADB_MASTER_HOST=mariadb-master
+      - MARIADB_ROOT_PASSWORD=${MARIADB_ROOT_PASSWORD}
+      - MARIADB_DATABASE=myapp
+      - MARIADB_USER=myapp
+      - MARIADB_PASSWORD=${MARIADB_PASSWORD}
     volumes:
-      # Data persistence — BACKUP BEFORE UPGRADES
-      - ./data/11:/var/lib/mysql
-      # Optional: custom config
-      - ./config/11:/etc/mysql/conf.d:ro
-      # Optional: init scripts (run once on first start)
-      - ./init/11:/docker-entrypoint-initdb.d:ro
-    networks:
-      - mariadb-11-net
+      - mariadb11_data:/var/lib/mysql
     healthcheck:
       test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 60s
-    # Logging
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "20m"
-        max-file: "5"
+    networks:
+      - app_internal
+    deploy:
+      resources:
+        limits:
+          cpus: "1.50"
+          memory: 1024M
 
-  # ------------------------------------------------------------
-  # MariaDB 12.3 (LTS) — Separate instance for different workload
-  # ------------------------------------------------------------
-  mariadb-12:
+  mariadb12:
     image: dgcosenza/mariadb:12.3
-    container_name: mariadb-12
+    container_name: mariadb12
     restart: unless-stopped
+    read_only: true
+    cap_drop:
+      - ALL
     security_opt:
       - no-new-privileges:true
-    deploy:
-      resources:
-        limits:
-          cpus: '1.00'
-          memory: 512M
-        reservations:
-          memory: 128M
+    tmpfs:
+      - /run/mysqld:uid=999,gid=999,mode=1777,size=16m
+      - /tmp:mode=1777,size=128m
     environment:
-      - MARIADB_ROOT_PASSWORD=${MARIADB_12_ROOT_PASSWORD}
-      - MARIADB_DATABASE=${MARIADB_12_DATABASE:-app2}
-      - MARIADB_USER=${MARIADB_12_USER:-app2}
-      - MARIADB_PASSWORD=${MARIADB_12_PASSWORD}
+      - MARIADB_ROOT_PASSWORD=${MARIADB12_ROOT_PASSWORD}
+      - MARIADB_DATABASE=forum
+      - MARIADB_USER=forum
+      - MARIADB_PASSWORD=${MARIADB12_PASSWORD}
     volumes:
-      - ./data/12:/var/lib/mysql
-      - ./config/12:/etc/mysql/conf.d:ro
-      - ./init/12:/docker-entrypoint-initdb.d:ro
-    networks:
-      - mariadb-12-net
+      - mariadb12_data:/var/lib/mysql
     healthcheck:
       test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 60s
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "20m"
-        max-file: "5"
+    networks:
+      - forum_internal
+    deploy:
+      resources:
+        limits:
+          cpus: "1.50"
+          memory: 1024M
 
-# ------------------------------------------------------------
-# Networks (internal, no external access by default)
-# ------------------------------------------------------------
+volumes:
+  mariadb11_data:
+  mariadb12_data:
+
 networks:
-  mariadb-11-net:
-    name: mariadb-11-net
-    driver: bridge
+  app_internal:
     internal: true
-  mariadb-12-net:
-    name: mariadb-12-net
-    driver: bridge
+  forum_internal:
     internal: true
-
-# ------------------------------------------------------------
-# Usage:
-# 1. cp docker-compose.example.yml docker-compose.yml
-# 2. Create .env with passwords (never commit .env!)
-#    MARIADB_11_ROOT_PASSWORD=...
-#    MARIADB_11_PASSWORD=...
-#    MARIADB_12_ROOT_PASSWORD=...
-#    MARIADB_12_PASSWORD=...
-# 3. mkdir -p data/11 data/12 config/11 config/12 init/11 init/12
-# 4. docker compose up -d
-#
-# Backup before any version change:
-#   docker exec mariadb-11 mariadb-backup --backup --target-dir=/backup --user=root --password=$MARIADB_11_ROOT_PASSWORD
-#   docker cp mariadb-11:/backup ./backup-$(date +%F)
-#
-# Rollback: tag the outgoing image (for example local/mariadb-rollback:<YYYYMMDD>) before switching.
