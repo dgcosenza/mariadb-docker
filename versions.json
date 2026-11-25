@@ -1,0 +1,22 @@
+{
+  "last_updated": "2026-11-24",
+  "debian_version": "13",
+  "go_version": "1.27.4",
+  "gosu_version": "1.20",
+  "tracks": {
+    "11.8": {
+      "version": "11.8.10",
+      "digest": "pending-hub-publish",
+      "trivy_fixable_critical_high": 0,
+      "grype_fixable_critical_high": 0,
+      "cves_seen": []
+    },
+    "12.3": {
+      "version": "12.3.4",
+      "digest": "pending-hub-publish",
+      "trivy_fixable_critical_high": 0,
+      "grype_fixable_critical_high": 0,
+      "cves_seen": []
+    }
+  }
+}

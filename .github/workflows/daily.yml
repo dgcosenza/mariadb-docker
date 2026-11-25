@@ -21,22 +21,16 @@ on:
         required: false
         default: ''
       gosu_version:
-        description: 'Override gosu version (leave empty for Dockerfile default)'
+        description: 'Override gosu version (leave empty for latest release)'
         required: false
         default: ''
       go_version:
-        description: 'Override Go version for building gosu (leave empty for Dockerfile default)'
+        description: 'Override Go version for building gosu (leave empty for latest stable on trixie)'
         required: false
         default: ''
-      force_push:
-        description: 'Push even if only docs changed (requires Docker Hub secrets)'
-        type: boolean
-        required: false
-        default: false
 
 permissions:
   contents: read
-  security-events: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -44,124 +38,68 @@ concurrency:
 
 env:
   IMAGE_NAME: dgcosenza/mariadb
-  MARIADB_118_DEFAULT: '11.8.10'
-  MARIADB_123_DEFAULT: '12.3.4'
   GOSU_VERSION_DEFAULT: '1.20'
-  GO_VERSION_DEFAULT: '1.25.7'
-  GPG_KEYS_118: '177F4010FE56CA3336300305F1656F24C74CD1D8'
-  GPG_KEYS_123: '177F4010FE56CA3336300305F1656F24C74CD1D8'
+  GO_VERSION_DEFAULT: '1.27.4'
+  GPG_KEYS: '177F4010FE56CA3336300305F1656F24C74CD1D8'
 
 jobs:
-  build-scan-publish:
+  public-check:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check tracked files, attribution, and pull request text
+        env:
+          PR_TEXT: ${{ github.event.pull_request.title }} ${{ github.event.pull_request.body }}
+        run: .github/scripts/public-check.sh
+
+  build-scan-publish:
+    needs: public-check
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      security-events: write
     strategy:
       fail-fast: false
       matrix:
         include:
           - major: '11.8'
-            tag_suffix: '11.8'
-            default_version: ${{ env.MARIADB_118_DEFAULT }}
-            override_version: ${{ inputs.mariadb_118_version }}
-            gpg_keys: ${{ env.GPG_KEYS_118 }}
+            is_default_latest: 'false'
           - major: '12.3'
-            tag_suffix: '12.3'
-            default_version: ${{ env.MARIADB_123_DEFAULT }}
-            override_version: ${{ inputs.mariadb_123_version }}
-            gpg_keys: ${{ env.GPG_KEYS_123 }}
+            is_default_latest: 'true'
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
 
-      - name: Resolve upstream MariaDB versions
+      - name: Resolve upstream MariaDB, gosu, and Go versions
         id: resolve
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          MARIADB_MAJOR: ${{ matrix.major }}
+          OVERRIDE_MARIADB: ${{ matrix.major == '11.8' && inputs.mariadb_118_version || inputs.mariadb_123_version }}
+          OVERRIDE_GOSU: ${{ inputs.gosu_version }}
+          OVERRIDE_GO: ${{ inputs.go_version }}
         run: |
           set -euo pipefail
+          python3 .github/scripts/resolve-versions.py
+          echo "build_date=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
+          echo "date_iso=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+          echo "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
-          MAJOR="${{ matrix.major }}"
-          OVERRIDE="${{ matrix.override_version }}"
-          DEFAULT="${{ matrix.default_version }}"
-          GPG_KEYS="${{ matrix.gpg_keys }}"
-
-          if [ -n "$OVERRIDE" ]; then
-            VERSION="$OVERRIDE"
-            echo "Using override version: $VERSION"
-          else
-            # Query MariaDB releases API for latest patch in the major series
-            # GitHub API: list releases, filter by tag_name starting with mariadb-{major}.
-            RELEASES=$(curl -fsSL \
-              -H 'Accept: application/vnd.github+json' \
-              -H "Authorization: Bearer $GH_TOKEN" \
-              -H 'X-GitHub-Api-Version: 2022-11-28' \
-              "https://api.github.com/repos/MariaDB/server/releases?per_page=100")
-
-            VERSION=$(printf '%s' "$RELEASES" | python3 - "$MAJOR" <<'PY'
-import sys, json, re
-major = sys.argv[1]
-releases = json.load(sys.stdin)
-# Find latest stable (non-prerelease) for this major series
-pattern = re.compile(r'^mariadb-' + re.escape(major) + r'\.(\d+)$')
-candidates = []
-for r in releases:
-    if r.get('prerelease') or r.get('draft'):
-        continue
-    m = pattern.match(r['tag_name'])
-    if m:
-        candidates.append((int(m.group(1)), r['tag_name']))
-if not candidates:
-    sys.exit(1)
-candidates.sort(reverse=True)
-# Return version like "11.8.10"
-tag = candidates[0][1]
-print(tag.replace('mariadb-', ''))
-PY
-            )
-            if [ -z "$VERSION" ]; then
-              echo "ERROR: Could not resolve latest MariaDB ${MAJOR} version" >&2
-              exit 1
-            fi
-            echo "Resolved latest MariaDB ${MAJOR}: ${VERSION}"
-          fi
-
-          # Validate version format (x.y.z)
-          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "ERROR: Invalid version format: $VERSION" >&2
-            exit 1
-          fi
-
-          GOSU_VERSION="${{ inputs.gosu_version }}"
-          [ -z "$GOSU_VERSION" ] && GOSU_VERSION="${GOSU_VERSION_DEFAULT}"
-
-          GO_VERSION="${{ inputs.go_version }}"
-          [ -z "$GO_VERSION" ] && GO_VERSION="${GO_VERSION_DEFAULT}"
-
-          BUILD_DATE=$(date -u +"%Y%m%d")
-          CREATED=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-
-          {
-            echo "mariadb_version=$VERSION"
-            echo "mariadb_major=$MAJOR"
-            echo "tag_suffix=${{ matrix.tag_suffix }}"
-            echo "gpg_keys=$GPG_KEYS"
-            echo "gosu_version=$GOSU_VERSION"
-            echo "go_version=$GO_VERSION"
-            echo "build_date=$BUILD_DATE"
-            echo "created=$CREATED"
-          } >> "$GITHUB_OUTPUT"
-
-          echo "MariaDB ${MAJOR} version: ${VERSION}"
-          echo "gosu version: ${GOSU_VERSION}"
-          echo "Go version: ${GO_VERSION}"
-          echo "Build date: ${BUILD_DATE}"
+      - name: Upload upstream changes artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: upstream-changes-${{ matrix.major }}
+          path: upstream-changes-${{ matrix.major }}.md
+          retention-days: 90
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
-      - name: Build linux/amd64 image
+      - name: Build linux/amd64 candidate image
+        id: build
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -169,61 +107,163 @@ PY
           load: true
           no-cache: ${{ github.event_name == 'schedule' }}
           tags: |
-            ${{ env.IMAGE_NAME }}:ci-candidate-${{ matrix.tag_suffix }}
+            ${{ env.IMAGE_NAME }}:ci-candidate-${{ matrix.major }}
           build-args: |
             MARIADB_MAJOR=${{ steps.resolve.outputs.mariadb_major }}
             MARIADB_VERSION=${{ steps.resolve.outputs.mariadb_version }}
-            GPG_KEYS=${{ steps.resolve.outputs.gpg_keys }}
+            GPG_KEYS=${{ env.GPG_KEYS }}
             GOSU_VERSION=${{ steps.resolve.outputs.gosu_version }}
             GO_VERSION=${{ steps.resolve.outputs.go_version }}
             IMAGE_CREATED=${{ steps.resolve.outputs.created }}
             IMAGE_REVISION=${{ github.sha }}
             IMAGE_SOURCE=https://github.com/${{ github.repository }}
 
+      - name: Inspect built base OS and server versions
+        id: inspect
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEBIAN_VER="$(docker run --rm --entrypoint cat "${IMAGE_NAME}:ci-candidate-${{ matrix.major }}" /etc/debian_version | tr -d '\r\n')"
+          MARIADB_OUT="$(docker run --rm --entrypoint mariadbd "${IMAGE_NAME}:ci-candidate-${{ matrix.major }}" --version | tr -d '\r\n')"
+          echo "debian_version=${DEBIAN_VER}" >> "$GITHUB_OUTPUT"
+          echo "Built Debian version: ${DEBIAN_VER}"
+          echo "Built MariaDB binary: ${MARIADB_OUT}"
+
       - name: Smoke-test container
         shell: bash
         run: |
           set -euo pipefail
-          ./tests/smoke.sh "${{ env.IMAGE_NAME }}:ci-candidate-${{ matrix.tag_suffix }}" "${{ matrix.major }}"
+          ./tests/smoke.sh "${IMAGE_NAME}:ci-candidate-${{ matrix.major }}" "${{ matrix.major }}"
 
-      - name: Scan image with Trivy — full report (informational)
+      - name: Scan image with Trivy — full table report
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: '${{ env.IMAGE_NAME }}:ci-candidate-${{ matrix.tag_suffix }}'
+          image-ref: '${{ env.IMAGE_NAME }}:ci-candidate-${{ matrix.major }}'
           format: 'table'
+          vuln-type: 'os,library'
           severity: 'CRITICAL,HIGH'
           exit-code: '0'
+          output: 'trivy-report-${{ matrix.major }}.txt'
 
-      - name: Scan image with Trivy — HARD GATE (fail on any fixable CRITICAL or HIGH)
+      - name: Scan image with Trivy — JSON report
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: '${{ env.IMAGE_NAME }}:ci-candidate-${{ matrix.tag_suffix }}'
+          image-ref: '${{ env.IMAGE_NAME }}:ci-candidate-${{ matrix.major }}'
+          format: 'json'
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '0'
+          output: 'trivy-report-${{ matrix.major }}.json'
+
+      - name: Scan image with Trivy — SARIF for code scanning
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: '${{ env.IMAGE_NAME }}:ci-candidate-${{ matrix.major }}'
+          format: 'sarif'
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+          ignore-unfixed: true
+          exit-code: '0'
+          output: 'trivy-results-${{ matrix.major }}.sarif'
+
+      - name: Upload Trivy SARIF to code scanning
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: 'trivy-results-${{ matrix.major }}.sarif'
+          category: trivy-mariadb-${{ matrix.major }}
+
+      - name: Upload Trivy reports (90-day retention)
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: trivy-reports-${{ matrix.major }}
+          path: |
+            trivy-report-${{ matrix.major }}.txt
+            trivy-report-${{ matrix.major }}.json
+            trivy-results-${{ matrix.major }}.sarif
+          retention-days: 90
+          if-no-files-found: ignore
+
+      - name: Scan image with Trivy — HARD GATE (0 fixable CRITICAL/HIGH)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: '${{ env.IMAGE_NAME }}:ci-candidate-${{ matrix.major }}'
           format: 'table'
+          vuln-type: 'os,library'
           severity: 'CRITICAL,HIGH'
           ignore-unfixed: true
           exit-code: '1'
 
-      - name: Scan image with Grype (artifact)
-        uses: anchore/scan-action@v6
+      - name: Scan image with Grype — HARD GATE (0 fixable CRITICAL/HIGH)
+        id: grype
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        uses: anchore/scan-action@v7
         with:
-          image: '${{ env.IMAGE_NAME }}:ci-candidate-${{ matrix.tag_suffix }}'
-          output-format: 'table'
-          fail-build: false
-          severity-cutoff: 'high'
+          image: '${{ env.IMAGE_NAME }}:ci-candidate-${{ matrix.major }}'
+          only-fixed: true
+          severity-cutoff: high
+          fail-build: true
+          output-format: table
+          output-file: 'grype-report-${{ matrix.major }}.txt'
+
+      - name: Upload Grype report (90-day retention)
+        if: always() && steps.build.outcome == 'success'
+        uses: actions/upload-artifact@v7
+        with:
+          name: grype-report-${{ matrix.major }}
+          path: 'grype-report-${{ matrix.major }}.txt'
+          retention-days: 90
+          if-no-files-found: ignore
 
       - name: Generate SBOM with Syft
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         uses: anchore/sbom-action@v0
         with:
-          image: '${{ env.IMAGE_NAME }}:ci-candidate-${{ matrix.tag_suffix }}'
+          image: '${{ env.IMAGE_NAME }}:ci-candidate-${{ matrix.major }}'
           format: 'spdx-json'
-          output-file: 'sbom-${{ matrix.tag_suffix }}.spdx.json'
+          output-file: 'sbom-${{ matrix.major }}.spdx.json'
+          upload-artifact: false
 
-      - name: Upload SBOM artifact
-        uses: actions/upload-artifact@v4
+      - name: Generate build provenance record
+        shell: bash
+        run: |
+          set -euo pipefail
+          IMAGE_ID="$(docker inspect --format '{{.Id}}' "${IMAGE_NAME}:ci-candidate-${{ matrix.major }}")"
+          python3 - "${IMAGE_ID}" <<'PY'
+          import json, os, sys
+          prov = {
+              "image": os.environ["IMAGE_NAME"],
+              "major": os.environ["MAJOR"],
+              "version": os.environ["VERSION"],
+              "debian_version": os.environ["DEBIAN_VER"],
+              "go_version": os.environ["GO_VER"],
+              "gosu_version": os.environ["GOSU_VER"],
+              "image_id": sys.argv[1],
+              "source": f"https://github.com/{os.environ['GITHUB_REPOSITORY']}",
+              "revision": os.environ["GITHUB_SHA"],
+              "workflow_run_id": os.environ["GITHUB_RUN_ID"],
+              "created": os.environ["CREATED"],
+          }
+          with open(f"provenance-{os.environ['MAJOR']}.json", "w", encoding="utf-8") as fh:
+              json.dump(prov, fh, indent=2)
+          PY
+        env:
+          MAJOR: ${{ matrix.major }}
+          VERSION: ${{ steps.resolve.outputs.mariadb_version }}
+          DEBIAN_VER: ${{ steps.inspect.outputs.debian_version }}
+          GO_VER: ${{ steps.resolve.outputs.go_version }}
+          GOSU_VER: ${{ steps.resolve.outputs.gosu_version }}
+          CREATED: ${{ steps.resolve.outputs.created }}
+
+      - name: Upload SBOM and provenance artifacts (90-day retention)
+        uses: actions/upload-artifact@v7
         with:
-          name: sbom-${{ matrix.tag_suffix }}
-          path: sbom-${{ matrix.tag_suffix }}.spdx.json
-          retention-days: 30
+          name: sbom-provenance-${{ matrix.major }}
+          path: |
+            sbom-${{ matrix.major }}.spdx.json
+            provenance-${{ matrix.major }}.json
+          retention-days: 90
 
       - name: Check Docker Hub publish credentials
         id: hub_auth
@@ -252,47 +292,193 @@ PY
         shell: bash
         run: |
           set -euo pipefail
-          IMAGE_TAG="${{ env.IMAGE_NAME }}:${{ steps.resolve.outputs.mariadb_version }}-${{ steps.resolve.outputs.build_date }}"
-          COMMIT_TAG="${{ env.IMAGE_NAME }}:${{ steps.resolve.outputs.mariadb_version }}"
-          MAJOR_TAG="${{ env.IMAGE_NAME }}:${{ steps.resolve.outputs.tag_suffix }}"
-          LATEST_TAG="${{ env.IMAGE_NAME }}:latest-${{ steps.resolve.outputs.tag_suffix }}"
+          MAJOR="${{ matrix.major }}"
+          VER="${{ steps.resolve.outputs.mariadb_version }}"
+          DATE="${{ steps.resolve.outputs.build_date }}"
+          SHORT_SHA="${GITHUB_SHA::7}"
+          CANDIDATE="${IMAGE_NAME}:ci-candidate-${MAJOR}"
 
-          for tag in "$IMAGE_TAG" "$COMMIT_TAG" "$MAJOR_TAG" "$LATEST_TAG"; do
-            docker tag "${{ env.IMAGE_NAME }}:ci-candidate-${{ matrix.tag_suffix }}" "$tag"
-            docker push "$tag"
+          TAGS=(
+            "${IMAGE_NAME}:${VER}-${DATE}"
+            "${IMAGE_NAME}:${VER}"
+            "${IMAGE_NAME}:${MAJOR}"
+            "${IMAGE_NAME}:latest-${MAJOR}"
+            "${IMAGE_NAME}:${MAJOR}-sha-${SHORT_SHA}"
+          )
+          if [ "${{ matrix.is_default_latest }}" = "true" ]; then
+            TAGS+=("${IMAGE_NAME}:latest" "${IMAGE_NAME}:sha-${SHORT_SHA}")
+          fi
+
+          for tag in "${TAGS[@]}"; do
+            docker tag "${CANDIDATE}" "${tag}"
+            docker push "${tag}"
           done
 
-          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$LATEST_TAG")
-          echo "Published digest for ${{ matrix.tag_suffix }}: ${DIGEST}"
+          DIGEST="$(docker inspect --format='{{index .RepoDigests 0}}' "${IMAGE_NAME}:${MAJOR}")"
           echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
-          echo "tag=${{ steps.resolve.outputs.mariadb_version }}-${{ steps.resolve.outputs.build_date }}" >> "$GITHUB_OUTPUT"
+          echo "Published digest for ${MAJOR}: ${DIGEST}"
 
-          {
-            echo "Built MariaDB ${{ steps.resolve.outputs.mariadb_version }} (${{ matrix.major }} series)."
-            echo "Debian base: debian:trixie-slim, upgraded during this run."
-            echo "gosu rebuilt with Go ${{ steps.resolve.outputs.go_version }}."
-            echo "Trivy scan passed with no fixable critical or high findings."
-          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Write build metadata for docs sync
+        shell: bash
+        env:
+          MAJOR: ${{ matrix.major }}
+          VERSION: ${{ steps.resolve.outputs.mariadb_version }}
+          PREV_VERSION: ${{ steps.resolve.outputs.prev_mariadb_version }}
+          DEBIAN_VER: ${{ steps.inspect.outputs.debian_version }}
+          GO_VER: ${{ steps.resolve.outputs.go_version }}
+          GOSU_VER: ${{ steps.resolve.outputs.gosu_version }}
+          DATE_ISO: ${{ steps.resolve.outputs.date_iso }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          major = os.environ["MAJOR"]
+          cves = set()
+          fixable_ch = 0
+          trivy_path = f"trivy-report-{major}.json"
+          if os.path.exists(trivy_path):
+              data = json.load(open(trivy_path, encoding="utf-8"))
+              for res in data.get("Results", []):
+                  for v in res.get("Vulnerabilities") or []:
+                      cves.add(v.get("VulnerabilityID", ""))
+                      if v.get("FixedVersion") and v.get("Severity") in ("CRITICAL", "HIGH"):
+                          fixable_ch += 1
+          meta = {
+              "major": major,
+              "version": os.environ["VERSION"],
+              "prev_version": os.environ.get("PREV_VERSION", ""),
+              "debian_version": os.environ["DEBIAN_VER"],
+              "go_version": os.environ["GO_VER"],
+              "gosu_version": os.environ["GOSU_VER"],
+              "date_iso": os.environ["DATE_ISO"],
+              "digest": os.environ.get("DIGEST", "") or "pending-hub-publish",
+              "trivy_fixable_critical_high": fixable_ch,
+              "grype_fixable_critical_high": 0,
+              "cves_seen": sorted(c for c in cves if c),
+          }
+          with open(f"meta-{major}.json", "w", encoding="utf-8") as fh:
+              json.dump(meta, fh, indent=2)
+          PY
 
-      - name: Read Docker Hub short description
-        if: steps.hub_auth.outputs.can_publish == 'true'
-        id: short_desc
+      - name: Upload build metadata artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-meta-${{ matrix.major }}
+          path: meta-${{ matrix.major }}.json
+          retention-days: 90
+
+  update-docs:
+    needs: [public-check, build-scan-publish]
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Download build metadata artifacts
+        uses: actions/download-artifact@v7
+        with:
+          pattern: build-meta-*
+          path: build-meta
+
+      - name: Update versions.json, README.md, and CHANGELOG.md
+        run: python3 .github/scripts/update-docs.py build-meta
+
+      - name: Re-run public content check before committing
+        run: .github/scripts/public-check.sh
+
+      - name: Commit and push automated documentation updates
         shell: bash
         run: |
           set -euo pipefail
-          DESC=$(tr -d '\r\n' < DOCKERHUB_SHORT_DESCRIPTION)
+          if [ -n "$(git status --porcelain versions.json README.md CHANGELOG.md)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add versions.json README.md CHANGELOG.md
+            git commit -m "chore(docs): update versions and changelog [skip ci]"
+            git push origin HEAD:main
+          else
+            echo "No documentation changes to commit."
+          fi
+
+      - name: Check Docker Hub description sync credentials
+        id: hub_desc_auth
+        shell: bash
+        env:
+          DH_USER: ${{ secrets.DOCKERHUB_USERNAME }}
+          DH_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          DESC="$(tr -d '\r\n' < DOCKERHUB_SHORT_DESCRIPTION)"
           if [ "${#DESC}" -gt 100 ]; then
             echo "ERROR: DOCKERHUB_SHORT_DESCRIPTION exceeds 100 characters (${#DESC})" >&2
             exit 1
           fi
           echo "text=${DESC}" >> "$GITHUB_OUTPUT"
+          if [ -n "$DH_USER" ] && [ -n "$DH_TOKEN" ]; then
+            echo "can_sync=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "can_sync=false" >> "$GITHUB_OUTPUT"
+          fi
 
-      - name: Sync Docker Hub repository overview (short & full description)
-        if: steps.hub_auth.outputs.can_publish == 'true'
+      - name: Sync Docker Hub overview and short description
+        if: steps.hub_desc_auth.outputs.can_sync == 'true'
         uses: peter-evans/dockerhub-description@v5
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
           repository: ${{ env.IMAGE_NAME }}
-          short-description: ${{ steps.short_desc.outputs.text }}
+          short-description: ${{ steps.hub_desc_auth.outputs.text }}
           readme-filepath: ./README.md
+
+  alert:
+    needs: [public-check, build-scan-publish, update-docs]
+    if: always() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Open, update, or close ci-failure issue
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RES_PUBLIC: ${{ needs.public-check.result }}
+          RES_BUILD: ${{ needs.build-scan-publish.result }}
+          RES_DOCS: ${{ needs.update-docs.result }}
+        run: |
+          set -euo pipefail
+          gh label create ci-failure --repo "$REPO" --color B60205 --description "Automated daily CI failure alert" 2>/dev/null || true
+          OPEN_NUM="$(gh issue list --repo "$REPO" --label ci-failure --state open --json number --jq '.[0].number // empty')"
+
+          FAILED_STEPS=()
+          [ "$RES_PUBLIC" != "success" ] && FAILED_STEPS+=("public-check ($RES_PUBLIC)")
+          [ "$RES_BUILD" != "success" ] && FAILED_STEPS+=("build-scan-publish ($RES_BUILD)")
+          if [ "$RES_DOCS" != "success" ] && [ "$RES_DOCS" != "skipped" ]; then
+            FAILED_STEPS+=("update-docs ($RES_DOCS)")
+          fi
+
+          if [ "${#FAILED_STEPS[@]}" -gt 0 ]; then
+            SUMMARY="$(IFS=', '; echo "${FAILED_STEPS[*]}")"
+            TITLE="Daily build failed: ${SUMMARY}"
+            BODY="Automated daily pipeline failure on \`main\`.
+
+          - **Failing job(s):** ${SUMMARY}
+          - **Workflow run:** ${RUN_URL}
+          - **Commit:** \`${GITHUB_SHA}\`
+
+          This issue will auto-close on the next green run."
+            if [ -n "$OPEN_NUM" ]; then
+              gh issue edit "$OPEN_NUM" --repo "$REPO" --title "$TITLE" --body "$BODY"
+            else
+              gh issue create --repo "$REPO" --label ci-failure --title "$TITLE" --body "$BODY"
+            fi
+          else
+            if [ -n "$OPEN_NUM" ]; then
+              gh issue close "$OPEN_NUM" --repo "$REPO" --comment "Resolved: daily build is green again (${RUN_URL})."
+            fi
+          fi

@@ -2,38 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
-for the *image tags* (MariaDB version + build date). The repository itself uses
-calendar versioning for daily builds.
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/). Image tags track official MariaDB release versions plus immutable `YYYYMMDD` daily build dates.
+
+Maintained by **Daniel G. Cosenza from FNX Labs**.
 
 ## [Unreleased]
 
-### Added
-- Initial release of hardened MariaDB image on Debian 13 (trixie)
-- Matrix build for MariaDB 11.8 (LTS) and 12.3 (LTS)
-- gosu rebuilt from source with Go 1.25.7+ to eliminate fixable CVEs
-- Daily CI with Trivy (hard gate), Grype, SBOM generation
-- Full compatibility with upstream docker-library/mariadb entrypoint
-- Non-root execution (UID 999, mysql user)
-- OCI labels, healthcheck, initialization script support
-
-## [11.8.10-20261124] - 2026-11-24
-## [12.3.4-20261124] - 2026-11-24
+## [2026-11-24]
 
 ### Added
-- First published build
-- MariaDB 11.8.10 (LTS) and 12.3.4 (LTS) from official apt repository
-- Debian 13 (trixie-slim) base, fully upgraded at build time
-- gosu 1.20 rebuilt with Go 1.25.7 (fixes 26 CVEs in stdlib)
-- Trivy scan: 0 fixable Critical/High
-- Grype scan: 0 fixable Critical/High
+- Initial hardened MariaDB 11.8 LTS (`11.8.10`) and 12.3 LTS (`12.3.4`) images on Debian 13 (`trixie-slim`) using the official GPG-verified MariaDB Debian 13 APT repository.
+- Source-rebuilt `gosu 1.20` using Go `1.27.4` (`golang:1.27.4-trixie`) to eliminate fixable Go stdlib vulnerabilities present in prebuilt upstream binaries.
+- Full 7-step automated daily CI pipeline: upstream version/release-notes tracking, clean `--no-cache` rebuilds, Trivy + Grype hard gates (0 fixable Critical/High), SPDX-JSON SBOM + provenance, functional smoke tests, automated docs/changelog/Docker Hub sync, and `ci-failure` issue alerting.
+- Full drop-in compatibility with upstream `docker-library/mariadb` environment variables, `/docker-entrypoint-initdb.d`, UID/GID `999:999`, and `healthcheck.sh`.
 
 ### Security
-- Eliminated 26 fixable vulnerabilities (1 CRITICAL, 25 HIGH) in gosu stdlib by rebuilding with Go 1.25.7
-- Base OS (Debian 13) fully patched at build time
-
-### Compatibility
-- Drop-in replacement for `mariadb:11.8` and `mariadb:12.3` from Docker Hub
-- Same environment variables, volumes, ports, UID/GID, healthcheck
-- Entry point and healthcheck scripts from upstream MariaDB Docker (11.8 branch)
+- Eliminated 26 fixable vulnerabilities (1 Critical, 25 High) found in upstream `mariadb:11.8` / `mariadb:12.3` (`gosu` Go 1.24.6 stdlib).
+- Base Debian 13 (`trixie-slim`) packages upgraded at build time; verified 0 fixable Critical/High in Trivy and Grype.

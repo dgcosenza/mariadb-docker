@@ -1,118 +1,115 @@
 #!/usr/bin/env bash
-# Smoke test for mariadb-docker image
-# Verifies: container starts, healthcheck passes, non-root execution, service answers, negative test
+# Smoke test for dgcosenza/mariadb image
+# Verifies: startup, healthcheck, non-root execution, SQL/initdb functionality,
+# mariadb-backup, and negative healthcheck behavior.
 
 set -euo pipefail
 
-IMAGE="${1:-dgcosenza/mariadb:ci-candidate}"
+IMAGE="${1:-dgcosenza/mariadb:ci-candidate-11.8}"
 MARIADB_MAJOR="${2:-11.8}"
+CONTAINER_NAME="mariadb-smoke-${MARIADB_MAJOR//./-}-$$"
+VOLUME_NAME="mariadb-smoke-vol-${MARIADB_MAJOR//./-}-$$"
 
 echo "=== Smoke testing ${IMAGE} (MariaDB ${MARIADB_MAJOR}) ==="
 
-# Generate random passwords for test
-ROOT_PASSWORD="$(openssl rand -base64 24)"
-USER_PASSWORD="$(openssl rand -base64 24)"
+ROOT_PASSWORD="$(openssl rand -hex 24)"
+USER_PASSWORD="$(openssl rand -hex 24)"
 DATABASE="testdb"
 USER="testuser"
 
-TMPDATA="$(mktemp -d)"
-TMPCONFIG="$(mktemp -d)"
-chmod 777 "${TMPDATA}" "${TMPCONFIG}"
+TMPINIT="$(mktemp -d)"
+cat > "${TMPINIT}/01-init.sql" <<'SQL'
+CREATE TABLE IF NOT EXISTS init_marker (id INT PRIMARY KEY, note VARCHAR(64));
+INSERT INTO init_marker (id, note) VALUES (1, 'initialized') ON DUPLICATE KEY UPDATE note='initialized';
+SQL
+chmod -R a+rX "${TMPINIT}"
 
 cleanup() {
-    docker rm -f mariadb-smoke >/dev/null 2>&1 || true
-    rm -rf "${TMPDATA}" "${TMPCONFIG}"
+    docker rm -f "${CONTAINER_NAME}" >/dev/null 2>&1 || true
+    docker volume rm -f "${VOLUME_NAME}" >/dev/null 2>&1 || true
+    rm -rf "${TMPINIT}"
 }
 trap cleanup EXIT
 
-echo "Starting container..."
-docker run -d --name mariadb-smoke \
+docker volume create "${VOLUME_NAME}" >/dev/null
+
+echo "Starting container (default non-root user)..."
+docker run -d --name "${CONTAINER_NAME}" \
     --security-opt no-new-privileges:true \
-    -p 127.0.0.1:13306:3306 \
     -e MARIADB_ROOT_PASSWORD="${ROOT_PASSWORD}" \
     -e MARIADB_DATABASE="${DATABASE}" \
     -e MARIADB_USER="${USER}" \
     -e MARIADB_PASSWORD="${USER_PASSWORD}" \
-    -v "${TMPDATA}:/var/lib/mysql" \
-    -v "${TMPCONFIG}:/etc/mysql/conf.d" \
+    -v "${VOLUME_NAME}:/var/lib/mysql" \
+    -v "${TMPINIT}:/docker-entrypoint-initdb.d:ro" \
     "${IMAGE}"
 
-echo "Waiting for healthcheck to pass..."
-for i in {1..60}; do
-    if docker exec mariadb-smoke healthcheck.sh --connect --innodb_initialized >/dev/null 2>&1; then
-        echo "Healthcheck passed"
+echo "Waiting for Docker healthcheck to report healthy..."
+for i in $(seq 1 60); do
+    STATUS="$(docker inspect --format '{{.State.Health.Status}}' "${CONTAINER_NAME}" 2>/dev/null || echo "missing")"
+    if [ "${STATUS}" = "healthy" ]; then
+        echo "OK: Container status is healthy"
         break
     fi
+    if [ "${STATUS}" = "missing" ] || [ "$(docker inspect --format '{{.State.Running}}' "${CONTAINER_NAME}" 2>/dev/null || echo false)" != "true" ]; then
+        echo "ERROR: Container exited prematurely"
+        docker logs "${CONTAINER_NAME}" || true
+        exit 1
+    fi
     sleep 2
-    if [ "$i" -eq 60 ]; then
-        echo "ERROR: Healthcheck never passed"
-        docker logs mariadb-smoke
+    if [ "${i}" -eq 60 ]; then
+        echo "ERROR: Container did not become healthy within 120s (status=${STATUS})"
+        docker logs "${CONTAINER_NAME}" || true
         exit 1
     fi
 done
 
 echo "Verifying non-root execution (UID 999)..."
-UID_ACTUAL="$(docker exec mariadb-smoke id -u)"
+UID_ACTUAL="$(docker exec "${CONTAINER_NAME}" id -u)"
 if [ "${UID_ACTUAL}" != "999" ]; then
     echo "ERROR: Container running as UID ${UID_ACTUAL}, expected 999 (mysql)"
     exit 1
 fi
 echo "OK: Running as UID ${UID_ACTUAL} (mysql)"
 
-echo "Verifying MariaDB connection and basic queries..."
-# Test root connection
-docker exec mariadb-smoke mariadb -uroot -p"${ROOT_PASSWORD}" -e "SELECT 1;" >/dev/null
-echo "OK: Root connection works"
-
-# Test user connection
-docker exec mariadb-smoke mariadb -u"${USER}" -p"${USER_PASSWORD}" "${DATABASE}" -e "SELECT 1;" >/dev/null
-echo "OK: User connection works"
-
-# Test database creation
-docker exec mariadb-smoke mariadb -uroot -p"${ROOT_PASSWORD}" -e "CREATE DATABASE IF NOT EXISTS smoke_test;" >/dev/null
-echo "OK: Database creation works"
-
-# Test table creation and data
-docker exec mariadb-smoke mariadb -uroot -p"${ROOT_PASSWORD}" smoke_test -e "
-    CREATE TABLE IF NOT EXISTS test (id INT PRIMARY KEY, val VARCHAR(255));
-    INSERT INTO test (id, val) VALUES (1, 'hello') ON DUPLICATE KEY UPDATE val='hello';
-    SELECT * FROM test;
-" | grep -q "hello"
-echo "OK: Table operations work"
-
-# Test mariadb-backup binary exists
-docker exec mariadb-smoke mariadb-backup --version >/dev/null
-echo "OK: mariadb-backup binary present"
-
-# Negative test: healthcheck should fail on wrong socket/port
-echo "Running negative healthcheck test..."
-if docker exec mariadb-smoke healthcheck.sh --connect --datadir=/nonexistent 2>/dev/null; then
-    echo "ERROR: Healthcheck unexpectedly passed on nonexistent datadir"
+echo "Verifying MariaDB server version matches ${MARIADB_MAJOR}..."
+VER_OUT="$(docker exec "${CONTAINER_NAME}" mariadb -uroot -p"${ROOT_PASSWORD}" -Nse "SELECT VERSION();")"
+echo "Reported version: ${VER_OUT}"
+if [[ "${VER_OUT}" != "${MARIADB_MAJOR}."* ]]; then
+    echo "ERROR: Expected MariaDB ${MARIADB_MAJOR}.x, got ${VER_OUT}"
     exit 1
 fi
-echo "OK: Negative healthcheck test passed (correctly failed)"
 
-# Verify data persistence by checking datadir ownership
-DATADIR_OWNER="$(docker exec mariadb-smoke stat -c '%U:%G' /var/lib/mysql)"
+echo "Verifying user connection, initdb.d script, and CRUD operations..."
+docker exec "${CONTAINER_NAME}" mariadb -u"${USER}" -p"${USER_PASSWORD}" "${DATABASE}" -Nse "SELECT note FROM init_marker WHERE id=1;" | grep -qx "initialized"
+echo "OK: User connection and /docker-entrypoint-initdb.d script verified"
+
+docker exec "${CONTAINER_NAME}" mariadb -uroot -p"${ROOT_PASSWORD}" -e "
+    CREATE DATABASE IF NOT EXISTS smoke_test;
+    USE smoke_test;
+    CREATE TABLE items (id INT PRIMARY KEY, val VARCHAR(64));
+    INSERT INTO items VALUES (1, 'ok');
+    SELECT val FROM items WHERE id=1;
+" | grep -qx "ok"
+echo "OK: Database and table CRUD operations verified"
+
+echo "Verifying mariadb-backup binary..."
+docker exec "${CONTAINER_NAME}" mariadb-backup --version >/dev/null
+echo "OK: mariadb-backup present"
+
+echo "Verifying datadir ownership..."
+DATADIR_OWNER="$(docker exec "${CONTAINER_NAME}" stat -c '%U:%G' /var/lib/mysql)"
 if [ "${DATADIR_OWNER}" != "mysql:mysql" ]; then
     echo "ERROR: Datadir ownership is ${DATADIR_OWNER}, expected mysql:mysql"
     exit 1
 fi
-echo "OK: Datadir ownership correct (${DATADIR_OWNER})"
+echo "OK: Datadir ownership is ${DATADIR_OWNER}"
 
-# Verify config directory permissions
-CONFIGDIR_PERMS="$(docker exec mariadb-smoke stat -c '%a' /etc/mysql/conf.d)"
-if [ "${CONFIGDIR_PERMS}" != "750" ] && [ "${CONFIGDIR_PERMS}" != "755" ]; then
-    echo "WARNING: Config dir permissions are ${CONFIGDIR_PERMS}"
+echo "Running negative healthcheck test..."
+if docker exec "${CONTAINER_NAME}" healthcheck.sh --connect --datadir=/nonexistent >/dev/null 2>&1; then
+    echo "ERROR: Healthcheck unexpectedly passed with nonexistent datadir"
+    exit 1
 fi
-echo "OK: Config directory accessible"
+echo "OK: Negative healthcheck failed as expected"
 
-# Verify no world-writable files in /var/lib/mysql (except socket)
-WORLD_WRITABLE="$(docker exec mariadb-smoke find /var/lib/mysql -type f -perm -o=w 2>/dev/null | grep -v '\.sock$' | head -5)"
-if [ -n "${WORLD_WRITABLE}" ]; then
-    echo "WARNING: World-writable files found in datadir:"
-    echo "${WORLD_WRITABLE}"
-fi
-
-echo ""
 echo "=== All smoke tests passed for ${IMAGE} ==="
