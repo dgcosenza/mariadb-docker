@@ -6,7 +6,7 @@
   "tracks": {
     "11.8": {
       "version": "11.8.10",
-      "digest": "pending-hub-publish",
+      "digest": "dgcosenza/mariadb@sha256:10c55123f9fb80e0de5f3e3f5e957ca15bbd81398d1b5e689d9836ab5296fd3e",
       "trivy_fixable_critical_high": 0,
       "grype_fixable_critical_high": 0,
       "cves_seen": [
@@ -32,7 +32,7 @@
     },
     "12.3": {
       "version": "12.3.4",
-      "digest": "pending-hub-publish",
+      "digest": "dgcosenza/mariadb@sha256:bb12604a21a9bf6aa418a735f1fca45235725e282e9d0c7d9c62a883c04b19dd",
       "trivy_fixable_critical_high": 0,
       "grype_fixable_critical_high": 0,
       "cves_seen": [

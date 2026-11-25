@@ -12,8 +12,8 @@ Maintained by **Daniel G. Cosenza from FNX Labs**.
 ## [2026-11-25]
 
 ### Changed
-- MariaDB 11.8 rebuilt at `11.8.10` on Debian `13.8` (`pending-hub-publish`)
-- MariaDB 12.3 rebuilt at `12.3.4` on Debian `13.8` (`pending-hub-publish`)
+- MariaDB 11.8 rebuilt at `11.8.10` on Debian `13.8` (`dgcosenza/mariadb@sha256:10c55123f9fb80e0de5f3e3f5e957ca15bbd81398d1b5e689d9836ab5296fd3e`)
+- MariaDB 12.3 rebuilt at `12.3.4` on Debian `13.8` (`dgcosenza/mariadb@sha256:bb12604a21a9bf6aa418a735f1fca45235725e282e9d0c7d9c62a883c04b19dd`)
 
 ### Security
 - Trivy and Grype gates verified: 0 fixable Critical/High vulnerabilities.
