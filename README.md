@@ -13,15 +13,15 @@ Maintained by **Daniel G. Cosenza from FNX Labs**.
 ## Current Versions
 
 <!-- versions:start -->
-_Last verified build: **2026-11-24** (UTC)_
+_Last verified build: **2026-11-25** (UTC)_
 
 | Track | Upstream Version | Base OS | Step-down Helper | Fixable Critical/High (Trivy / Grype) |
 |-------|------------------|---------|------------------|---------------------------------------|
-| `11.8` (LTS) | `11.8.10` | Debian `13` | `gosu 1.20` (Go `1.27.4`) | 0 / 0 |
-| `12.3` (LTS) | `12.3.4` | Debian `13` | `gosu 1.20` (Go `1.27.4`) | 0 / 0 |
+| `11.8` (LTS) | `11.8.10` | Debian `13.8` | `gosu 1.20` (Go `1.27.4`) | 0 / 0 |
+| `12.3` (LTS) | `12.3.4` | Debian `13.8` | `gosu 1.20` (Go `1.27.4`) | 0 / 0 |
 
 **Recent upstream updates:**
-- Initial hardened Debian 13 release for MariaDB 11.8 and 12.3 LTS tracks.
+- Daily base OS (`debian:trixie-slim`) security refresh and CVE-gated verification.
 <!-- versions:end -->
 
 ## Supported Tags
