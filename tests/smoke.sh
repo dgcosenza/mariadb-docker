@@ -105,9 +105,9 @@ if [ "${DATADIR_OWNER}" != "mysql:mysql" ]; then
 fi
 echo "OK: Datadir ownership is ${DATADIR_OWNER}"
 
-echo "Running negative healthcheck test..."
-if docker exec "${CONTAINER_NAME}" healthcheck.sh --connect --datadir=/nonexistent >/dev/null 2>&1; then
-    echo "ERROR: Healthcheck unexpectedly passed with nonexistent datadir"
+echo "Running negative healthcheck test (against stopped server)..."
+if docker run --rm --entrypoint healthcheck.sh "${IMAGE}" --connect --innodb_initialized >/dev/null 2>&1; then
+    echo "ERROR: Healthcheck unexpectedly passed without a running MariaDB server"
     exit 1
 fi
 echo "OK: Negative healthcheck failed as expected"
