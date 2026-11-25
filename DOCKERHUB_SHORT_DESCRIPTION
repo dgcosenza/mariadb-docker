@@ -1,0 +1,1 @@
+Hardened MariaDB on Debian 13 (trixie) — official apt repo, gosu rebuilt with patched Go, daily security scans, non-root, drop-in compatible.
