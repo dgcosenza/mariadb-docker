@@ -31,8 +31,8 @@ _Last verified build: **2026-11-25** (UTC) — multi-arch (`linux/amd64`, `linux
 | `12.3` (LTS) | `12.3.4` | Debian `13.8` | `gosu 1.20` (Go `1.27.4`) | `amd64: 130.5 MB, arm64: 460.6 MB` | **0** (18 unfixed) |
 
 **Published multi-arch digests (identical on Docker Hub & GHCR):**
-- **MariaDB `11.8` (`11.8.10`):** `dgcosenza/mariadb@sha256:02e616d19aed3d857503c28825bd9157b4f0be9d2f49827a5e15ff7f8ba43fac` / `ghcr.io/dgcosenza/mariadb@sha256:02e616d19aed3d857503c28825bd9157b4f0be9d2f49827a5e15ff7f8ba43fac`
-- **MariaDB `12.3` (`12.3.4`):** `dgcosenza/mariadb@sha256:9cb87dff63d8b551a808536c20c043c7ada08188375d6b95223608e84ad92a23` / `ghcr.io/dgcosenza/mariadb@sha256:9cb87dff63d8b551a808536c20c043c7ada08188375d6b95223608e84ad92a23`
+- **MariaDB `11.8` (`11.8.10`):** `dgcosenza/mariadb@sha256:e69a3d51afc556677ea725484d10e46cd290379a801a13256c63baec20e32c56` / `ghcr.io/dgcosenza/mariadb@sha256:e69a3d51afc556677ea725484d10e46cd290379a801a13256c63baec20e32c56`
+- **MariaDB `12.3` (`12.3.4`):** `dgcosenza/mariadb@sha256:a0c4772ff59bd48552e476daa9aff4be37e0dbd1769f796790434117989d0e03` / `ghcr.io/dgcosenza/mariadb@sha256:a0c4772ff59bd48552e476daa9aff4be37e0dbd1769f796790434117989d0e03`
 <!-- versions:end -->
 
 ---
