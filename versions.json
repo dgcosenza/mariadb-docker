@@ -1,15 +1,27 @@
 {
   "last_updated": "2026-11-25",
   "debian_version": "13.8",
+  "base_digest": "sha256:8aa5a7bf5a1955bddbe7d74fcdd0b91ab30e74362a8b73af672b0481b35b44a0",
   "go_version": "1.27.4",
   "gosu_version": "1.20",
+  "architectures": [
+    "linux/amd64",
+    "linux/arm64"
+  ],
+  "signed": true,
+  "slsa_provenance": true,
   "tracks": {
     "11.8": {
       "version": "11.8.10",
-      "digest": "dgcosenza/mariadb@sha256:10c55123f9fb80e0de5f3e3f5e957ca15bbd81398d1b5e689d9836ab5296fd3e",
+      "digest": "dgcosenza/mariadb@sha256:2725aa698e87e53cce4503248136f25df0e9a945e2d6fc8e4023844f182189d6",
+      "ghcr_digest": "ghcr.io/dgcosenza/mariadb@sha256:2725aa698e87e53cce4503248136f25df0e9a945e2d6fc8e4023844f182189d6",
+      "sizes_mb": {
+        "amd64": "128.2",
+        "arm64": "453.2"
+      },
       "trivy_fixable_critical_high": 0,
       "grype_fixable_critical_high": 0,
-      "cves_seen": [
+      "unfixed_cves": [
         "CVE-2025-69720",
         "CVE-2026-107494",
         "CVE-2026-119373",
@@ -32,10 +44,15 @@
     },
     "12.3": {
       "version": "12.3.4",
-      "digest": "dgcosenza/mariadb@sha256:bb12604a21a9bf6aa418a735f1fca45235725e282e9d0c7d9c62a883c04b19dd",
+      "digest": "dgcosenza/mariadb@sha256:33bbd5d2685e2a82c81815206775f768c89baae0bac79d4d619a3b6687a49a23",
+      "ghcr_digest": "ghcr.io/dgcosenza/mariadb@sha256:33bbd5d2685e2a82c81815206775f768c89baae0bac79d4d619a3b6687a49a23",
+      "sizes_mb": {
+        "amd64": "129.7",
+        "arm64": "458.0"
+      },
       "trivy_fixable_critical_high": 0,
       "grype_fixable_critical_high": 0,
-      "cves_seen": [
+      "unfixed_cves": [
         "CVE-2025-69720",
         "CVE-2026-107494",
         "CVE-2026-119373",

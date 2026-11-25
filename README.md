@@ -23,12 +23,16 @@ Hardened, multi-arch, rootless **MariaDB 11.8 LTS** and **MariaDB 12.3 LTS** con
 ## Current Versions
 
 <!-- versions:start -->
-_Last verified build: **2026-11-25** (UTC)_
+_Last verified build: **2026-11-25** (UTC) — multi-arch (`linux/amd64`, `linux/arm64`), Cosign OIDC signed, SPDX & CycloneDX SBOM attested, SLSA Build L3 provenance._
 
-| Track | Upstream Version | Base OS | Step-down Helper | Fixable Critical/High (Trivy + Grype SBOM) |
-| --- | --- | --- | --- | --- |
-| `11.8` (LTS) | `11.8.10` | Debian `13.8` | `gosu 1.20` (Go `1.27.4`) | **0** |
-| `12.3` (LTS) | `12.3.4` | Debian `13.8` | `gosu 1.20` (Go `1.27.4`) | **0** |
+| Track | Upstream Version | Base OS | Step-down Helper | Uncompressed Size | Fixable Critical/High (Trivy + Grype SBOM) |
+| --- | --- | --- | --- | --- | --- |
+| `11.8` (LTS) | `11.8.10` | Debian `13.8` | `gosu 1.20` (Go `1.27.4`) | `amd64: 128.2 MB, arm64: 453.2 MB` | **0** (18 unfixed) |
+| `12.3` (LTS) | `12.3.4` | Debian `13.8` | `gosu 1.20` (Go `1.27.4`) | `amd64: 129.7 MB, arm64: 458.0 MB` | **0** (18 unfixed) |
+
+**Published multi-arch digests (identical on Docker Hub & GHCR):**
+- **MariaDB `11.8` (`11.8.10`):** `dgcosenza/mariadb@sha256:2725aa698e87e53cce4503248136f25df0e9a945e2d6fc8e4023844f182189d6` / `ghcr.io/dgcosenza/mariadb@sha256:2725aa698e87e53cce4503248136f25df0e9a945e2d6fc8e4023844f182189d6`
+- **MariaDB `12.3` (`12.3.4`):** `dgcosenza/mariadb@sha256:33bbd5d2685e2a82c81815206775f768c89baae0bac79d4d619a3b6687a49a23` / `ghcr.io/dgcosenza/mariadb@sha256:33bbd5d2685e2a82c81815206775f768c89baae0bac79d4d619a3b6687a49a23`
 <!-- versions:end -->
 
 ---
