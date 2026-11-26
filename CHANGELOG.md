@@ -13,8 +13,8 @@ Maintained by **Daniel G. Cosenza from FNX Labs**.
 ## [2026-11-26]
 
 ### Automated Daily Build
-- MariaDB 11.8 rebuilt at `11.8.10` on Debian `13.8` (multi-arch `amd64`/`arm64`, `dgcosenza/mariadb@sha256:561a0e68e5a1e8c4c249eb3634c2b550abbc57ed93485a35131b38a926ee56b8`)
-- MariaDB 12.3 rebuilt at `12.3.4` on Debian `13.8` (multi-arch `amd64`/`arm64`, `dgcosenza/mariadb@sha256:1d8d9e34cd63e3e59dc3cba24944837c4c8001ab89094600954a1d38e6303bc3`)
+- MariaDB 11.8 rebuilt at `11.8.10` on Debian `13.8` (multi-arch `amd64`/`arm64`, `dgcosenza/mariadb@sha256:73e0c20a7436ecbae527262526cfcd0c66c4e802b479a8472178232a6e7c50ec`)
+- MariaDB 12.3 rebuilt at `12.3.4` on Debian `13.8` (multi-arch `amd64`/`arm64`, `dgcosenza/mariadb@sha256:16b16f81c2659682cb3492949c54400b7fd43089ce03d26c068d1feb7d75c036`)
 
 ### Security
 - Trivy and Grype (SPDX SBOM) gates verified: **0 fixable findings of any severity** vulnerabilities across `linux/amd64` and `linux/arm64`; Cosign OIDC signed with SLSA Build L3 provenance.
