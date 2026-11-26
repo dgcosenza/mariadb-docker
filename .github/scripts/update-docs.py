@@ -47,7 +47,7 @@ def update_readme(readme_path: Path, versions: dict) -> None:
             start_marker,
             f"_Last verified build: **{updated}** (UTC) — multi-arch (`linux/amd64`, `linux/arm64`), Cosign OIDC signed, SPDX & CycloneDX SBOM attested, SLSA Build L3 provenance._",
             "",
-            "| Track | Upstream Version | Base OS | Step-down Helper | Uncompressed Size | Fixable Critical/High (Trivy + Grype SBOM) |",
+            "| Track | Upstream Version | Base OS | Step-down Helper | Uncompressed Size | Fixable findings of any severity (Trivy + Grype SBOM) |",
             "| --- | --- | --- | --- | --- | --- |",
             *rows,
             "",
@@ -94,7 +94,7 @@ def update_changelog(
         sec_lines.append(f"- CVEs resolved since previous scan: {', '.join(f'`{c}`' for c in sorted(cves_fixed))}.")
     else:
         sec_lines.append(
-            "- Trivy and Grype (SPDX SBOM) gates verified: **0 fixable Critical/High** vulnerabilities across `linux/amd64` and `linux/arm64`; Cosign OIDC signed with SLSA Build L3 provenance."
+            "- Trivy and Grype (SPDX SBOM) gates verified: **0 fixable findings of any severity** vulnerabilities across `linux/amd64` and `linux/arm64`; Cosign OIDC signed with SLSA Build L3 provenance."
         )
 
     entry = "\n".join(
