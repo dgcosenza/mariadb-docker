@@ -15,8 +15,8 @@ Immutable date-stamped tags (such as `11.8.10-20261124`) are frozen for reproduc
 
 ## Vulnerability Scanning & Gates
 
-- **Trivy** (OS + language packages): SARIF uploaded to GitHub Code Scanning; table and JSON reports retained for 90 days; **blocking hard gate** on any fixable `CRITICAL` or `HIGH` finding.
-- **Grype**: **blocking hard gate** (`only-fixed: true`, severity cutoff `high`); table report retained for 90 days.
+- **Trivy** (OS + language packages): SARIF uploaded to GitHub Code Scanning; table and JSON reports retained for 90 days; **blocking hard gate** on any fixable vulnerability of any severity.
+- **Grype**: **blocking hard gate** (`--only-fixed --fail-on negligible`, all severities); table report retained for 90 days.
 - **SBOM & Provenance**: SPDX-JSON SBOM via Syft plus build provenance JSON retained for 90 days.
 
 ## Reporting a Vulnerability
