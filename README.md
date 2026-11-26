@@ -23,16 +23,16 @@ Hardened, multi-arch, rootless **MariaDB 11.8 LTS** and **MariaDB 12.3 LTS** con
 ## Current Versions
 
 <!-- versions:start -->
-_Last verified build: **2026-11-25** (UTC) — multi-arch (`linux/amd64`, `linux/arm64`), Cosign OIDC signed, SPDX & CycloneDX SBOM attested, SLSA Build L3 provenance._
+_Last verified build: **2026-11-26** (UTC) — multi-arch (`linux/amd64`, `linux/arm64`), Cosign OIDC signed, SPDX & CycloneDX SBOM attested, SLSA Build L3 provenance._
 
-| Track | Upstream Version | Base OS | Step-down Helper | Uncompressed Size | Fixable findings, any severity (Trivy + Grype SBOM) |
+| Track | Upstream Version | Base OS | Step-down Helper | Uncompressed Size | Fixable findings of any severity (Trivy + Grype SBOM) |
 | --- | --- | --- | --- | --- | --- |
-| `11.8` (LTS) | `11.8.10` | Debian `13.8` | `gosu 1.20` (Go `1.27.4`) | `amd64: 129.0 MB, arm64: 455.7 MB` | **0** (18 unfixed) |
+| `11.8` (LTS) | `11.8.10` | Debian `13.8` | `gosu 1.20` (Go `1.27.4`) | `amd64: 129.0 MB, arm64: 455.8 MB` | **0** (18 unfixed) |
 | `12.3` (LTS) | `12.3.4` | Debian `13.8` | `gosu 1.20` (Go `1.27.4`) | `amd64: 130.5 MB, arm64: 460.6 MB` | **0** (18 unfixed) |
 
 **Published multi-arch digests (identical on Docker Hub & GHCR):**
-- **MariaDB `11.8` (`11.8.10`):** `dgcosenza/mariadb@sha256:6c1692f35612a285f13a6c8018a5b32c97f40dea3fc65cb0e16da9cdca05167a` / `ghcr.io/dgcosenza/mariadb@sha256:6c1692f35612a285f13a6c8018a5b32c97f40dea3fc65cb0e16da9cdca05167a`
-- **MariaDB `12.3` (`12.3.4`):** `dgcosenza/mariadb@sha256:7456a61a9dfc7b14678d327685b06dd6f14a16724eb9cc9da51f8adae55a34f8` / `ghcr.io/dgcosenza/mariadb@sha256:7456a61a9dfc7b14678d327685b06dd6f14a16724eb9cc9da51f8adae55a34f8`
+- **MariaDB `11.8` (`11.8.10`):** `dgcosenza/mariadb@sha256:2e9edf8faf6b77b681d530197b2e77e5db8d69f065f2f97a77fc12cb8cdf5d38` / `ghcr.io/dgcosenza/mariadb@sha256:2e9edf8faf6b77b681d530197b2e77e5db8d69f065f2f97a77fc12cb8cdf5d38`
+- **MariaDB `12.3` (`12.3.4`):** `dgcosenza/mariadb@sha256:efbf6af89615f22e411949038e680fcfe2ea0e10a234268fbfd1c48b09369181` / `ghcr.io/dgcosenza/mariadb@sha256:efbf6af89615f22e411949038e680fcfe2ea0e10a234268fbfd1c48b09369181`
 <!-- versions:end -->
 
 ---

@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-11-25",
+  "last_updated": "2026-11-26",
   "debian_version": "13.8",
   "base_digest": "sha256:8aa5a7bf5a1955bddbe7d74fcdd0b91ab30e74362a8b73af672b0481b35b44a0",
   "go_version": "1.27.4",
@@ -13,11 +13,11 @@
   "tracks": {
     "11.8": {
       "version": "11.8.10",
-      "digest": "dgcosenza/mariadb@sha256:6c1692f35612a285f13a6c8018a5b32c97f40dea3fc65cb0e16da9cdca05167a",
-      "ghcr_digest": "ghcr.io/dgcosenza/mariadb@sha256:6c1692f35612a285f13a6c8018a5b32c97f40dea3fc65cb0e16da9cdca05167a",
+      "digest": "dgcosenza/mariadb@sha256:2e9edf8faf6b77b681d530197b2e77e5db8d69f065f2f97a77fc12cb8cdf5d38",
+      "ghcr_digest": "ghcr.io/dgcosenza/mariadb@sha256:2e9edf8faf6b77b681d530197b2e77e5db8d69f065f2f97a77fc12cb8cdf5d38",
       "sizes_mb": {
         "amd64": "129.0",
-        "arm64": "455.7"
+        "arm64": "455.8"
       },
       "trivy_fixable_critical_high": 0,
       "grype_fixable_critical_high": 0,
@@ -44,8 +44,8 @@
     },
     "12.3": {
       "version": "12.3.4",
-      "digest": "dgcosenza/mariadb@sha256:7456a61a9dfc7b14678d327685b06dd6f14a16724eb9cc9da51f8adae55a34f8",
-      "ghcr_digest": "ghcr.io/dgcosenza/mariadb@sha256:7456a61a9dfc7b14678d327685b06dd6f14a16724eb9cc9da51f8adae55a34f8",
+      "digest": "dgcosenza/mariadb@sha256:efbf6af89615f22e411949038e680fcfe2ea0e10a234268fbfd1c48b09369181",
+      "ghcr_digest": "ghcr.io/dgcosenza/mariadb@sha256:efbf6af89615f22e411949038e680fcfe2ea0e10a234268fbfd1c48b09369181",
       "sizes_mb": {
         "amd64": "130.5",
         "arm64": "460.6"
