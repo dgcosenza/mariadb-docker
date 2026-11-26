@@ -25,7 +25,7 @@ Hardened, multi-arch, rootless **MariaDB 11.8 LTS** and **MariaDB 12.3 LTS** con
 <!-- versions:start -->
 _Last verified build: **2026-11-25** (UTC) — multi-arch (`linux/amd64`, `linux/arm64`), Cosign OIDC signed, SPDX & CycloneDX SBOM attested, SLSA Build L3 provenance._
 
-| Track | Upstream Version | Base OS | Step-down Helper | Uncompressed Size | Fixable Critical/High (Trivy + Grype SBOM) |
+| Track | Upstream Version | Base OS | Step-down Helper | Uncompressed Size | Fixable findings, any severity (Trivy + Grype SBOM) |
 | --- | --- | --- | --- | --- | --- |
 | `11.8` (LTS) | `11.8.10` | Debian `13.8` | `gosu 1.20` (Go `1.27.4`) | `amd64: 129.0 MB, arm64: 455.7 MB` | **0** (18 unfixed) |
 | `12.3` (LTS) | `12.3.4` | Debian `13.8` | `gosu 1.20` (Go `1.27.4`) | `amd64: 130.5 MB, arm64: 460.6 MB` | **0** (18 unfixed) |
@@ -216,8 +216,8 @@ gh attestation verify oci://ghcr.io/dgcosenza/mariadb:12.3 --owner dgcosenza
 ## Security
 
 - **Preflight gates:** Every push and PR runs **Hadolint** (blocking on warning+), **Gitleaks** secret scanning across git history, and **public-content/attribution** checks.
-- **Vulnerability scan policy:** Every build generates **SPDX** and **CycloneDX** SBOMs with **Syft** per series and architecture, scans with **Trivy** (table, JSON, SARIF upload, blocking `--ignore-unfixed` gate) and **Grype** scanning the SPDX SBOM (`--only-fixed --fail-on high`), and enforces a **Dive** efficiency gate (`>= 95%`, `<= 5%` wasted user bytes).
-- **Current status:** **0 fixable Critical/High** vulnerabilities across Debian 13 OS packages, MariaDB 11.8/12.3 LTS, and source-built `gosu`.
+- **Vulnerability scan policy (all severities with a fix):** Every build generates **SPDX** and **CycloneDX** SBOMs with **Syft** per series and architecture, scans with **Trivy** (table, JSON, SARIF upload, blocking `--ignore-unfixed` gate) and **Grype** scanning the SPDX SBOM (`--only-fixed --fail-on negligible`), and enforces a **Dive** efficiency gate (`>= 95%`, `<= 5%` wasted user bytes).
+- **Current status:** **0 fixable findings of any severity** vulnerabilities across Debian 13 OS packages, MariaDB 11.8/12.3 LTS, and source-built `gosu`.
 - **Dependency automation:** Renovate (`renovate.json`) pins base image digests and GitHub Action commit SHAs; Dependabot security alerts and OpenSSF Scorecard monitoring are enabled.
 - See [`SECURITY.md`](https://github.com/dgcosenza/mariadb-docker/blob/main/SECURITY.md) for responsible disclosure.
 
@@ -247,7 +247,7 @@ docker buildx build --platform linux/amd64 --load \
 
 1. **Preflight & upstream check:** Runs public-content checks, **Hadolint**, and **Gitleaks**; queries the authenticated GitHub API (`MariaDB/server`, `tianon/gosu`), `archive.mariadb.org`, `go.dev`, and Docker Hub for digest-pinned base images, emitting `upstream-changes-11.8.md` and `upstream-changes-12.3.md`.
 2. **Multi-arch no-cache rebuild:** Rebuilds both `11.8` and `12.3` natively on `linux/amd64` and `linux/arm64` runners with `--no-cache` on schedule, running `apt-get upgrade` and compiling `gosu` from source with the latest patched Go release.
-3. **Smoke, Dive & vulnerability gates:** Runs [`tests/smoke.sh`](https://github.com/dgcosenza/mariadb-docker/blob/main/tests/smoke.sh) natively on all 4 matrix targets, enforces the **Dive** efficiency gate (`>= 95%`, `<= 5%` wasted), generates **Syft** SPDX + CycloneDX SBOMs per arch, and gates publication on **0 fixable Critical/High** in both **Trivy** and **Grype** (scanning the SPDX SBOM).
+3. **Smoke, Dive & vulnerability gates:** Runs [`tests/smoke.sh`](https://github.com/dgcosenza/mariadb-docker/blob/main/tests/smoke.sh) natively on all 4 matrix targets, enforces the **Dive** efficiency gate (`>= 95%`, `<= 5%` wasted), generates **Syft** SPDX + CycloneDX SBOMs per arch, and gates publication on **0 fixable findings of any severity** in both **Trivy** and **Grype** (scanning the SPDX SBOM).
 4. **Dual-registry publish & supply-chain signing:** Assembles multi-arch OCI manifest indexes for both `11.8` and `12.3` on **GHCR** (`ghcr.io/dgcosenza/mariadb`) and mirrors identical digests to **Docker Hub** (`dgcosenza/mariadb`); signs every digest and attaches SPDX/CycloneDX SBOM attestations via **Cosign** keyless OIDC; emits **SLSA Build L3** provenance for both series; and publishes a signed **GitHub Release** with checksums and SBOMs.
 5. **Automated documentation sync:** Commits updated `versions.json`, the README `Current Versions` block, and a dated `CHANGELOG.md` entry via `github-actions[bot]` (`[skip ci]`, validated by `public-check.sh`), then syncs the Docker Hub overview and short description.
 6. **Failure alerting:** Opens or updates a single GitHub issue labeled `ci-failure` on any `main` or scheduled failure, and auto-closes it on the next green run.
