@@ -7,6 +7,7 @@
 [![SLSA Level 3](https://img.shields.io/badge/SLSA-Level%203-brightgreen.svg)](#supply-chain-verification)
 [![Architectures](https://img.shields.io/badge/arch-amd64%20%7C%20arm64-informational.svg)](#supported-architectures)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/dgcosenza/mariadb-docker/badge)](https://scorecard.dev/viewer/?uri=github.com/dgcosenza/mariadb-docker)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/17161/badge)](https://www.bestpractices.dev/projects/17161)
 [![Docker Pulls](https://img.shields.io/docker/pulls/dgcosenza/mariadb)](https://hub.docker.com/r/dgcosenza/mariadb)
 [![Docker Image Size](https://img.shields.io/docker/image-size/dgcosenza/mariadb/12.3)](https://hub.docker.com/r/dgcosenza/mariadb)
 [![Latest Release](https://img.shields.io/github/v/release/dgcosenza/mariadb-docker?label=version)](https://github.com/dgcosenza/mariadb-docker/releases)
