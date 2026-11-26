@@ -94,7 +94,7 @@ def update_changelog(
         sec_lines.append(f"- CVEs resolved since previous scan: {', '.join(f'`{c}`' for c in sorted(cves_fixed))}.")
     else:
         sec_lines.append(
-            "- Trivy and Grype (SPDX SBOM) gates verified: **0 fixable findings of any severity** vulnerabilities across `linux/amd64` and `linux/arm64`; Cosign OIDC signed with SLSA Build L3 provenance."
+            "- Trivy and Grype (SPDX SBOM) gates verified: **0 fixable vulnerabilities of any severity** across `linux/amd64` and `linux/arm64`; Cosign OIDC signed with SLSA Build L3 provenance."
         )
 
     entry = "\n".join(
