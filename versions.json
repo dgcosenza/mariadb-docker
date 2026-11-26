@@ -13,8 +13,8 @@
   "tracks": {
     "11.8": {
       "version": "11.8.10",
-      "digest": "dgcosenza/mariadb@sha256:d550e50ebf08db34a855cff5a3e8b74ac8d76bfd9e11730ac9b3ce60395bbb9e",
-      "ghcr_digest": "ghcr.io/dgcosenza/mariadb@sha256:d550e50ebf08db34a855cff5a3e8b74ac8d76bfd9e11730ac9b3ce60395bbb9e",
+      "digest": "dgcosenza/mariadb@sha256:19560065cbf8db2b94db12c7c4e87b29d00bd267e040e441bdd463732e3f2138",
+      "ghcr_digest": "ghcr.io/dgcosenza/mariadb@sha256:19560065cbf8db2b94db12c7c4e87b29d00bd267e040e441bdd463732e3f2138",
       "sizes_mb": {
         "amd64": "129.0",
         "arm64": "455.8"
@@ -44,8 +44,8 @@
     },
     "12.3": {
       "version": "12.3.4",
-      "digest": "dgcosenza/mariadb@sha256:4c87e8f133131e8f2452e24e2c00fa9cc5b27c7c6a2c7fd640fb581fe7463fcb",
-      "ghcr_digest": "ghcr.io/dgcosenza/mariadb@sha256:4c87e8f133131e8f2452e24e2c00fa9cc5b27c7c6a2c7fd640fb581fe7463fcb",
+      "digest": "dgcosenza/mariadb@sha256:3dea0afb75ad6df0f7a5ff79bbab5babd9de7dc8ae695e6aa58b0248c9665a86",
+      "ghcr_digest": "ghcr.io/dgcosenza/mariadb@sha256:3dea0afb75ad6df0f7a5ff79bbab5babd9de7dc8ae695e6aa58b0248c9665a86",
       "sizes_mb": {
         "amd64": "130.5",
         "arm64": "460.6"
