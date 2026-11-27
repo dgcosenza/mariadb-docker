@@ -1,16 +1,33 @@
 # MariaDB on Debian 13 (trixie) — Hardened Container Image
 
-[![Daily MariaDB image](https://github.com/dgcosenza/mariadb-docker/actions/workflows/daily.yml/badge.svg)](https://github.com/dgcosenza/mariadb-docker/actions/workflows/daily.yml)
-[![Packaging License: MIT](https://img.shields.io/badge/packaging-MIT-blue.svg)](https://github.com/dgcosenza/mariadb-docker/blob/main/LICENSE)
-[![Upstream License: GPL-2.0-only](https://img.shields.io/badge/upstream-GPL--2.0--only-green.svg)](https://github.com/MariaDB/server/blob/main/COPYING)
-[![Signed with Cosign](https://img.shields.io/badge/signed-cosign%20OIDC-blueviolet.svg)](#supply-chain-verification)
-[![SLSA Level 3](https://img.shields.io/badge/SLSA-Level%203-brightgreen.svg)](#supply-chain-verification)
-[![Architectures](https://img.shields.io/badge/arch-amd64%20%7C%20arm64-informational.svg)](#supported-architectures)
+[![Daily CI](https://github.com/dgcosenza/mariadb-docker/actions/workflows/daily.yml/badge.svg)](https://github.com/dgcosenza/mariadb-docker/actions/workflows/daily.yml)
+[![OpenSSF Scorecard Workflow](https://github.com/dgcosenza/mariadb-docker/actions/workflows/scorecard.yml/badge.svg)](https://github.com/dgcosenza/mariadb-docker/actions/workflows/scorecard.yml)
+[![Gitleaks Secret Scan](https://github.com/dgcosenza/mariadb-docker/actions/workflows/gitleaks.yml/badge.svg)](https://github.com/dgcosenza/mariadb-docker/actions/workflows/gitleaks.yml)
+[![Public Content Check](https://github.com/dgcosenza/mariadb-docker/actions/workflows/public-check.yml/badge.svg)](https://github.com/dgcosenza/mariadb-docker/actions/workflows/public-check.yml)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/dgcosenza/mariadb-docker/badge)](https://scorecard.dev/viewer/?uri=github.com/dgcosenza/mariadb-docker)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/17161/badge)](https://www.bestpractices.dev/projects/17161)
-[![Docker Pulls](https://img.shields.io/docker/pulls/dgcosenza/mariadb)](https://hub.docker.com/r/dgcosenza/mariadb)
-[![Docker Image Size](https://img.shields.io/docker/image-size/dgcosenza/mariadb/12.3)](https://hub.docker.com/r/dgcosenza/mariadb)
-[![Latest Release](https://img.shields.io/github/v/release/dgcosenza/mariadb-docker?label=version)](https://github.com/dgcosenza/mariadb-docker/releases)
+
+[![Trivy + Grype: 0 Fixable CVEs](https://img.shields.io/badge/Trivy%20%2B%20Grype-0%20fixable%20CVEs-brightgreen?logo=trivy&logoColor=white)](https://github.com/dgcosenza/mariadb-docker/security/code-scanning)
+[![Signed: Cosign OIDC](https://img.shields.io/badge/signed-Cosign%20OIDC-blueviolet)](https://github.com/dgcosenza/mariadb-docker#supply-chain-verification)
+[![SLSA Build L3](https://img.shields.io/badge/SLSA-Build%20L3-brightgreen)](https://github.com/dgcosenza/mariadb-docker/attestations)
+[![SBOM: SPDX + CycloneDX](https://img.shields.io/badge/SBOM-SPDX%20%2B%20CycloneDX-0A7BBB?logo=spdx&logoColor=white)](https://github.com/dgcosenza/mariadb-docker/releases/latest)
+[![Base OS](https://img.shields.io/badge/base-Debian%2013%20(trixie--slim)-A81D33?logo=debian&logoColor=white)](https://github.com/dgcosenza/mariadb-docker/blob/main/Dockerfile)
+[![Architectures](https://img.shields.io/badge/arch-amd64%20%7C%20arm64-007ec6?logo=linux&logoColor=white)](https://github.com/dgcosenza/mariadb-docker#supported-architectures)
+[![Healthcheck: CI Verified](https://img.shields.io/badge/healthcheck-CI%20verified-brightgreen?logo=docker&logoColor=white)](https://github.com/dgcosenza/mariadb-docker#healthcheck)
+[![Renovate Enabled](https://img.shields.io/badge/renovate-enabled-1A1F6C?logo=renovate&logoColor=white)](https://github.com/dgcosenza/mariadb-docker/blob/main/renovate.json)
+[![Dependabot Enabled](https://img.shields.io/badge/dependabot-enabled-025E8C?logo=dependabot&logoColor=white)](https://github.com/dgcosenza/mariadb-docker/blob/main/.github/dependabot.yml)
+[![Daily Rebuilds](https://img.shields.io/badge/rebuilds-daily-2088FF?logo=githubactions&logoColor=white)](https://github.com/dgcosenza/mariadb-docker/actions/workflows/daily.yml)
+
+[![Latest Release](https://img.shields.io/github/v/release/dgcosenza/mariadb-docker?label=version&logo=github)](https://github.com/dgcosenza/mariadb-docker/releases/latest)
+[![Release Date](https://img.shields.io/github/release-date/dgcosenza/mariadb-docker?label=released&logo=github)](https://github.com/dgcosenza/mariadb-docker/releases/latest)
+[![Last Commit](https://img.shields.io/github/last-commit/dgcosenza/mariadb-docker?logo=github)](https://github.com/dgcosenza/mariadb-docker/commits/main)
+[![Docker Pulls](https://img.shields.io/docker/pulls/dgcosenza/mariadb?logo=docker&logoColor=white)](https://hub.docker.com/r/dgcosenza/mariadb)
+[![Docker Image Size](https://img.shields.io/docker/image-size/dgcosenza/mariadb/12.3?logo=docker&logoColor=white)](https://hub.docker.com/r/dgcosenza/mariadb)
+[![Registries: Docker Hub + GHCR](https://img.shields.io/badge/registries-Docker%20Hub%20%2B%20GHCR-2496ED?logo=docker&logoColor=white)](https://github.com/dgcosenza/mariadb-docker/pkgs/container/mariadb)
+[![Packaging License: MIT](https://img.shields.io/badge/packaging-MIT-blue?logo=opensourceinitiative&logoColor=white)](https://github.com/dgcosenza/mariadb-docker/blob/main/LICENSE)
+[![Upstream License](https://img.shields.io/badge/upstream-GPL--2.0--only-green?logo=opensourceinitiative&logoColor=white)](https://github.com/MariaDB/server/blob/main/COPYING)
+[![GitHub Issues](https://img.shields.io/github/issues/dgcosenza/mariadb-docker?logo=github)](https://github.com/dgcosenza/mariadb-docker/issues)
+[![FNX Labs Catalog](https://img.shields.io/badge/catalog-FNX%20Labs-0b1020?logo=githubpages&logoColor=white)](https://dgcosenza.github.io/)
 
 Hardened, multi-arch, rootless **MariaDB 11.8 LTS** and **MariaDB 12.3 LTS** container images on **Debian 13 (`trixie-slim`)**, installing server packages from the official GPG-verified MariaDB Debian 13 APT repository and rebuilding `gosu` from source with the latest patched Go toolchain, maintained by **Daniel G. Cosenza from FNX Labs**.
 
