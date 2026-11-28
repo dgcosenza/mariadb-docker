@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-11-27",
+  "last_updated": "2026-11-28",
   "debian_version": "13.8",
   "base_digest": "sha256:8aa5a7bf5a1955bddbe7d74fcdd0b91ab30e74362a8b73af672b0481b35b44a0",
   "go_version": "1.27.4",
@@ -13,8 +13,8 @@
   "tracks": {
     "11.8": {
       "version": "11.8.10",
-      "digest": "dgcosenza/mariadb@sha256:bc03391a09d356ee89515f449d063e1b7912fe9c89515ab6a69fe2adc7893bd7",
-      "ghcr_digest": "ghcr.io/dgcosenza/mariadb@sha256:bc03391a09d356ee89515f449d063e1b7912fe9c89515ab6a69fe2adc7893bd7",
+      "digest": "dgcosenza/mariadb@sha256:fd0339233400d457518b551e84cca6685c71988679896f37ac64a5687f00fa51",
+      "ghcr_digest": "ghcr.io/dgcosenza/mariadb@sha256:fd0339233400d457518b551e84cca6685c71988679896f37ac64a5687f00fa51",
       "sizes_mb": {
         "amd64": "129.0",
         "arm64": "455.8"
@@ -44,8 +44,8 @@
     },
     "12.3": {
       "version": "12.3.4",
-      "digest": "dgcosenza/mariadb@sha256:d80faace74457e8720fcb271b8192c8691457cd503142a99a6f9664dc35af182",
-      "ghcr_digest": "ghcr.io/dgcosenza/mariadb@sha256:d80faace74457e8720fcb271b8192c8691457cd503142a99a6f9664dc35af182",
+      "digest": "dgcosenza/mariadb@sha256:46ff6853bedc588e6c0946b134533cce0178e12160d4efb80163be2157430963",
+      "ghcr_digest": "ghcr.io/dgcosenza/mariadb@sha256:46ff6853bedc588e6c0946b134533cce0178e12160d4efb80163be2157430963",
       "sizes_mb": {
         "amd64": "130.5",
         "arm64": "460.6"
